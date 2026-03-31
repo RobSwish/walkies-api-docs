@@ -1,0 +1,1122 @@
+openapi: 3.0.3
+info:
+  title: Walkies API
+  description: |
+    The Walkies API allows pet sitting businesses to integrate with external tools via Zapier or direct API access.
+
+    ## Authentication
+    All requests require an API key passed as a Bearer token:
+    ```
+    Authorization: Bearer wk_live_...
+    ```
+    Generate an API key from the Walkies iOS app: **Settings > Integrations > Generate New API Key**.
+
+    ## Rate Limits
+    No hard rate limits are enforced. Please be reasonable with request frequency.
+
+    ## Subscription
+    Zapier integration requires a **Pro subscription**. API requests from downgraded accounts will receive a `403` response.
+  version: 1.0.3
+  contact:
+    name: Walkies Support
+    url: https://walkies.app
+servers:
+  - url: https://us-central1-walkies-log.cloudfunctions.net/zapierApi
+    description: Production
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key generated from the Walkies iOS app
+
+  schemas:
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+          example: cust123
+        firstName:
+          type: string
+          example: Jane
+        lastName:
+          type: string
+          example: Smith
+        email:
+          type: string
+          example: jane@example.com
+        phoneNumber:
+          type: string
+          example: "+447700900000"
+        picture:
+          type: string
+          nullable: true
+          example: https://firebasestorage.googleapis.com/...
+        address:
+          type: string
+        notes:
+          type: string
+        accessInformation:
+          type: string
+        emergencyContactName:
+          type: string
+        emergencyPhoneNumber:
+          type: string
+        secondaryFirstName:
+          type: string
+          nullable: true
+        secondaryLastName:
+          type: string
+          nullable: true
+        secondaryEmail:
+          type: string
+          nullable: true
+        secondaryPhoneNumber:
+          type: string
+          nullable: true
+        linked:
+          type: boolean
+        secondaryLinked:
+          type: boolean
+        preferredPaymentMethod:
+          type: string
+          nullable: true
+          enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+        status:
+          type: string
+          enum: [active, archived]
+        createdDate:
+          type: string
+          format: date-time
+
+    Pet:
+      type: object
+      properties:
+        id:
+          type: string
+        customerID:
+          type: string
+        name:
+          type: string
+          example: Max
+        type:
+          type: string
+          enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+        breed:
+          type: string
+          example: Labrador
+        gender:
+          type: string
+          enum: [Male, Female]
+        weight:
+          type: string
+          nullable: true
+        neutered:
+          type: boolean
+        microchipped:
+          type: boolean
+        medicalInformation:
+          type: string
+        foodInstructions:
+          type: string
+        status:
+          type: string
+          enum: [active, archived, passedAway]
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [walk, dropin, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
+        title:
+          type: string
+          example: 1 Hour Walk
+        description:
+          type: string
+        amount:
+          type: number
+          description: Amount in pence/cents (e.g. 2500 = GBP 25.00)
+          example: 2500
+        additionalPetAmount:
+          type: number
+          nullable: true
+          description: Extra charge per additional pet (pence/cents)
+        currency:
+          type: string
+          example: GBP
+        country:
+          type: string
+          example: GB
+        duration:
+          type: integer
+          nullable: true
+          description: Duration in minutes
+        quantity:
+          type: integer
+          default: 1
+        cadence:
+          type: string
+          enum: [perService, perDay, perNight]
+          default: perService
+        hidden:
+          type: boolean
+          default: false
+        position:
+          type: integer
+          default: 0
+
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [walk, checkIn, taxi, daycare, boarding, homeSitting, overnight, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
+        status:
+          type: string
+          enum: [confirmed, requested, declined]
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+          example: Europe/London
+        allDay:
+          type: boolean
+        pets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              customerID:
+                type: string
+              type:
+                type: string
+              breed:
+                type: string
+              gender:
+                type: string
+        teamMembers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              role:
+                type: string
+        service:
+          type: object
+          nullable: true
+          description: Primary service
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            amount:
+              type: number
+            type:
+              type: string
+            cadence:
+              type: string
+        additionalServices:
+          type: array
+          items:
+            type: object
+        notes:
+          type: string
+        customerIDs:
+          type: array
+          items:
+            type: string
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        customerID:
+          type: string
+        customerFirstName:
+          type: string
+        customerLastName:
+          type: string
+        amount:
+          type: number
+          description: Amount in pence/cents
+        currency:
+          type: string
+        country:
+          type: string
+        reference:
+          type: string
+        services:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+              title:
+                type: string
+              amount:
+                type: number
+              quantity:
+                type: integer
+              cadence:
+                type: string
+              currency:
+                type: string
+              country:
+                type: string
+        pets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              customerID:
+                type: string
+        payments:
+          type: array
+          items:
+            type: object
+        notes:
+          type: string
+        paid:
+          type: boolean
+        paymentMethod:
+          type: string
+          enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+        datePaid:
+          type: string
+          format: date-time
+          nullable: true
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        travelAmount:
+          type: number
+          nullable: true
+        discountAmount:
+          type: number
+          nullable: true
+        tipAmount:
+          type: number
+          nullable: true
+        serviceTaxPercentage:
+          type: number
+          nullable: true
+        serviceTaxAmount:
+          type: number
+          nullable: true
+        createdDate:
+          type: string
+          format: date-time
+
+    Expense:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+          description: Amount in your currency
+        category:
+          type: string
+          enum: [fuel, mileage, petSupplies, insurance, vehicleMaintenance, marketing, officeSupplies, vetSupplies, software, equipment, training, other]
+        date:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          nullable: true
+        vendor:
+          type: string
+          nullable: true
+        teamMemberIDs:
+          type: array
+          items:
+            type: string
+        teamMemberNames:
+          type: array
+          items:
+            type: string
+        mileageDistance:
+          type: number
+          nullable: true
+          description: Required for mileage category
+        mileageRate:
+          type: number
+          nullable: true
+          description: Required for mileage category
+        reimbursed:
+          type: boolean
+        createdDate:
+          type: string
+          format: date-time
+
+    Announcement:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        picture:
+          type: string
+          nullable: true
+        createdDate:
+          type: string
+          format: date-time
+
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - appointment.created
+              - appointment.updated
+              - appointment.cancelled
+              - customer.created
+              - customer.updated
+              - invoice.created
+              - invoice.paid
+              - walk.started
+              - walk.finished
+              - taxi.started
+              - taxi.finished
+              - petsitting.started
+              - petsitting.finished
+              - message.received
+              - contract.signed
+              - announcement.created
+              - announcement.updated
+              - team_member.added
+              - team_member.removed
+        secret:
+          type: string
+          description: HMAC-SHA256 secret for verifying webhook payloads
+        createdDate:
+          type: string
+          format: date-time
+
+    WebhookPayload:
+      type: object
+      properties:
+        event:
+          type: string
+          example: appointment.created
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: Event-specific payload
+
+    CompanyInfo:
+      type: object
+      properties:
+        companyName:
+          type: string
+          example: Walkies
+        companyLogo:
+          type: string
+          nullable: true
+        country:
+          type: string
+          example: GB
+        currency:
+          type: string
+          example: GBP
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /me:
+    get:
+      summary: Test Authentication
+      description: Returns company information for the authenticated API key. Use this to verify your key is valid.
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyInfo'
+        '401':
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Pro subscription required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /customers:
+    get:
+      summary: List Customers
+      description: Returns all customers. Optionally filter by email or name.
+      tags: [Customers]
+      parameters:
+        - name: email
+          in: query
+          schema:
+            type: string
+          description: Filter by exact email match
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: Filter by name (partial match on first + last name)
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Customer'
+    post:
+      summary: Create Customer
+      tags: [Customers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [firstName, lastName]
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                email:
+                  type: string
+                phoneNumber:
+                  type: string
+                address:
+                  type: string
+                notes:
+                  type: string
+                accessInformation:
+                  type: string
+                emergencyContactName:
+                  type: string
+                emergencyPhoneNumber:
+                  type: string
+                preferredPaymentMethod:
+                  type: string
+                  enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+                secondaryFirstName:
+                  type: string
+                secondaryLastName:
+                  type: string
+                secondaryEmail:
+                  type: string
+                secondaryPhoneNumber:
+                  type: string
+                imageUrl:
+                  type: string
+                  description: URL of a profile picture (max 5MB)
+                imageBase64:
+                  type: string
+                  description: Base64-encoded profile picture (max 5MB)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+
+  /customers/{id}:
+    get:
+      summary: Get Customer
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          description: Customer not found
+    patch:
+      summary: Update Customer
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                email:
+                  type: string
+                phoneNumber:
+                  type: string
+                address:
+                  type: string
+                notes:
+                  type: string
+                imageUrl:
+                  type: string
+                  description: URL of a profile picture (max 5MB)
+                imageBase64:
+                  type: string
+                  description: Base64-encoded profile picture (max 5MB)
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+
+  /pets:
+    get:
+      summary: List Pets
+      description: Returns pets. Optionally filter by customer or name.
+      tags: [Pets]
+      parameters:
+        - name: customerID
+          in: query
+          schema:
+            type: string
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: Filter by pet name (partial match)
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+
+  /services:
+    get:
+      summary: List Services
+      description: Returns all configured services for your company.
+      tags: [Services]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Service'
+    post:
+      summary: Create Service
+      tags: [Services]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, type, amount]
+              properties:
+                title:
+                  type: string
+                  example: 1 Hour Walk
+                type:
+                  type: string
+                  enum: [walk, dropin, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other]
+                amount:
+                  type: number
+                  description: Amount in pence/cents
+                  example: 2500
+                cadence:
+                  type: string
+                  enum: [perService, perDay, perNight]
+                  default: perService
+                description:
+                  type: string
+                duration:
+                  type: integer
+                  description: Duration in minutes
+                additionalPetAmount:
+                  type: number
+                  description: Extra charge per additional pet (pence/cents)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+
+  /services/{id}:
+    get:
+      summary: Get Service
+      tags: [Services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '404':
+          description: Service not found
+
+  /appointments:
+    get:
+      summary: List Appointments
+      tags: [Appointments]
+      parameters:
+        - name: customerID
+          in: query
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter by date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Appointment'
+    post:
+      summary: Create Appointment
+      tags: [Appointments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, startDate]
+              properties:
+                type:
+                  type: string
+                  enum: [walk, checkIn, taxi, daycare, boarding, homeSitting, overnight, training, grooming, meetAndGreet, other, external, busy, holiday]
+                startDate:
+                  type: string
+                  format: date-time
+                endDate:
+                  type: string
+                  format: date-time
+                timezone:
+                  type: string
+                  default: UTC
+                status:
+                  type: string
+                  enum: [confirmed, requested]
+                  default: confirmed
+                serviceID:
+                  type: string
+                  description: ID of a service from GET /services
+                petIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Pet IDs to include
+                teamMemberIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Team member IDs to assign
+                customerIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Customer IDs (auto-derived from pets if not provided)
+                invoiceType:
+                  type: string
+                  enum: [none, single, whenStarted]
+                  default: none
+                allDay:
+                  type: boolean
+                  default: false
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+
+  /invoices:
+    get:
+      summary: List Invoices
+      tags: [Invoices]
+      parameters:
+        - name: customerID
+          in: query
+          schema:
+            type: string
+        - name: paid
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+    post:
+      summary: Create Invoice
+      description: |
+        Creates an invoice for a customer. Services must reference existing services from your account (use GET /services to list them).
+        The amount is auto-calculated from selected services unless overridden.
+        Customer pets are automatically included.
+      tags: [Invoices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID]
+              properties:
+                customerID:
+                  type: string
+                serviceIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: IDs of services from GET /services
+                amount:
+                  type: number
+                  description: Override auto-calculated amount (pence/cents)
+                paymentMethod:
+                  type: string
+                  enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+                  default: None
+                notes:
+                  type: string
+                dueDate:
+                  type: string
+                  format: date-time
+                travelAmount:
+                  type: number
+                  description: Travel charge (pence/cents)
+                discountAmount:
+                  type: number
+                  description: Discount (pence/cents)
+                serviceTaxPercentage:
+                  type: number
+                serviceTaxAmount:
+                  type: number
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+
+  /expenses:
+    get:
+      summary: List Expenses
+      tags: [Expenses]
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [fuel, mileage, petSupplies, insurance, vehicleMaintenance, marketing, officeSupplies, vetSupplies, software, equipment, training, other]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Expense'
+    post:
+      summary: Create Expense
+      tags: [Expenses]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, category, date]
+              properties:
+                amount:
+                  type: number
+                  description: Amount in your currency
+                category:
+                  type: string
+                  enum: [fuel, mileage, petSupplies, insurance, vehicleMaintenance, marketing, officeSupplies, vetSupplies, software, equipment, training, other]
+                date:
+                  type: string
+                  format: date-time
+                vendor:
+                  type: string
+                notes:
+                  type: string
+                mileageDistance:
+                  type: number
+                  description: Required for mileage category
+                mileageRate:
+                  type: number
+                  description: Required for mileage category
+                teamMemberIDs:
+                  type: array
+                  items:
+                    type: string
+                teamMemberNames:
+                  type: array
+                  items:
+                    type: string
+                createdByTeamMemberID:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+
+  /announcements:
+    post:
+      summary: Create Announcement
+      description: Creates an announcement that is sent to all customers.
+      tags: [Announcements]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                message:
+                  type: string
+                imageUrl:
+                  type: string
+                  description: URL of an image to attach (max 5MB)
+                imageBase64:
+                  type: string
+                  description: Base64-encoded image (max 5MB)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+
+  /messages:
+    post:
+      summary: Send Message
+      description: Sends a message to a customer. The customer must have connected their journal (linked or secondaryLinked must be true).
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, message]
+              properties:
+                customerID:
+                  type: string
+                message:
+                  type: string
+      responses:
+        '201':
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  conversationID:
+                    type: string
+                  message:
+                    type: string
+                  sentDate:
+                    type: string
+                    format: date-time
+        '400':
+          description: Customer not linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /webhooks:
+    get:
+      summary: List Webhook Subscriptions
+      tags: [Webhooks]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Webhook'
+    post:
+      summary: Subscribe to Webhooks
+      description: |
+        Subscribe to receive webhook notifications when events occur.
+        Webhook payloads are signed with HMAC-SHA256 using the returned secret.
+        The signature is sent in the `X-Walkies-Signature` header.
+      tags: [Webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: URL to receive webhook POST requests
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - appointment.created
+                      - appointment.updated
+                      - appointment.cancelled
+                      - customer.created
+                      - customer.updated
+                      - invoice.created
+                      - invoice.paid
+                      - walk.started
+                      - walk.finished
+                      - taxi.started
+                      - taxi.finished
+                      - petsitting.started
+                      - petsitting.finished
+                      - message.received
+                      - contract.signed
+                      - announcement.created
+                      - announcement.updated
+                      - team_member.added
+                      - team_member.removed
+      responses:
+        '201':
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+
+  /webhooks/{id}:
+    delete:
+      summary: Unsubscribe from Webhook
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unsubscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
