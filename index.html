@@ -6,10 +6,14 @@
   <title>Walkies API</title>
 </head>
 <body>
-  <script
-    id="api-reference"
-    data-url="openapi.yaml"
-    data-configuration='{"theme":"default","layout":"modern","darkMode":true}'></script>
+  <script id="api-reference" data-url="openapi.yaml"></script>
+  <script>
+    // Follow the visitor's OS light/dark setting on load; the in-page toggle still works.
+    (function () {
+      var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.getElementById('api-reference').dataset.configuration = JSON.stringify({ layout: 'modern', darkMode: prefersDark });
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 </body>
 </html>
