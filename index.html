@@ -8,10 +8,19 @@
 <body>
   <script id="api-reference" data-url="openapi.yaml"></script>
   <script>
-    // Follow the visitor's OS light/dark setting on load; the in-page toggle still works.
+    // Follow the visitor's OS light/dark setting; hide the "Built with Scalar" footer badge.
     (function () {
       var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      document.getElementById('api-reference').dataset.configuration = JSON.stringify({ layout: 'modern', darkMode: prefersDark });
+      var hideBranding =
+        '.scalar-app a[href*="scalar.com"],' +
+        '.scalar-app a[href*="github.com/scalar"],' +
+        '.scalar-app .scalar-sidebar-footer,' +
+        '.scalar-app .open-api-client-button + * a[href*="scalar"] { display: none !important; }';
+      document.getElementById('api-reference').dataset.configuration = JSON.stringify({
+        layout: 'modern',
+        darkMode: prefersDark,
+        customCss: hideBranding
+      });
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
