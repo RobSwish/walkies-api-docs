@@ -2638,6 +2638,54 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TravelLog'
+    post:
+      summary: Create Travel Log
+      description: >-
+        Manual travel-log entry, mirroring the app's manual editor. Distance is in
+        METERS (the canonical stored unit). GPS coordinates and odometer readings
+        are app-only and cannot be set via the API. The created log is inactive
+        (completed). When set, loggingTeamMemberID is validated against your team
+        and recorded as the team member who logged the travel (used by report
+        filters); when omitted, no logging team member is recorded.
+      tags: [Travel Logs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [startTime, endTime, distanceMeters]
+              properties:
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                  description: Must be on or after startTime
+                distanceMeters:
+                  type: number
+                  description: Distance in meters; must be greater than 0
+                teamMemberIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Team members on the trip (unknown ids are skipped)
+                loggingTeamMemberID:
+                  type: string
+                  description: Optional. The team member who logged this travel — validated against your team (unknown id returns 400).
+                appointmentID:
+                  type: string
+                  description: Optional appointment this travel relates to
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelLog'
+        '400':
+          description: Validation error
   /travel-logs/{id}:
     get:
       summary: Get Travel Log
@@ -2655,6 +2703,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TravelLog'
+        '404':
+          description: Travel log not found
+    patch:
+      summary: Update Travel Log
+      description: >-
+        Edits a completed travel log (active/in-progress logs return 400).
+        endTime must remain on or after startTime across partial updates.
+      tags: [Travel Logs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                distanceMeters:
+                  type: number
+                  description: Distance in meters; must be greater than 0
+                teamMemberIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Replaces the embedded team-member list (unknown ids are skipped)
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelLog'
+        '404':
+          description: Travel log not found
+    delete:
+      summary: Delete Travel Log
+      tags: [Travel Logs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
         '404':
           description: Travel log not found
   /webhooks/{id}/test:
