@@ -25,7 +25,7 @@ info:
 
     ## Subscription
     The API requires a **Max subscription**. Requests from accounts without an active Max subscription receive a `403` response.
-  version: 1.1.0
+  version: 1.2.0
   contact:
     name: Walkies Support
     url: https://walkies.app
@@ -3171,9 +3171,9 @@ paths:
         profit = total income - total expenses. Amounts in minor units.
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
       responses:
         '200':
@@ -3187,23 +3187,24 @@ paths:
                   period: { $ref: '#/components/schemas/ReportPeriod' }
                   income:
                     type: object
+                    description: Minor units; payment-apportioned values may be fractional.
                     properties:
-                      serviceRevenue: { type: integer }
-                      travelRevenue: { type: integer }
-                      tipsRevenue: { type: integer }
-                      discounts: { type: integer }
-                      fees: { type: integer }
-                      refunds: { type: integer }
-                      taxCollected: { type: integer }
-                      totalIncome: { type: integer }
+                      serviceRevenue: { type: number }
+                      travelRevenue: { type: number }
+                      tipsRevenue: { type: number }
+                      discounts: { type: number }
+                      fees: { type: number }
+                      refunds: { type: number }
+                      taxCollected: { type: number }
+                      totalIncome: { type: number }
                   expenses:
                     type: object
                     properties:
                       byCategory:
                         type: array
-                        items: { type: object, properties: { category: { type: string }, amount: { type: integer } } }
-                      total: { type: integer }
-                  netProfit: { type: integer }
+                        items: { type: object, properties: { category: { type: string }, amount: { type: number } } }
+                      total: { type: number }
+                  netProfit: { type: number }
               example:
                 report: profit_loss
                 period: { type: thisMonth, start: '2026-06-01T00:00:00.000+01:00', end: '2026-06-30T23:59:59.999+01:00', timezone: Europe/London }
@@ -3221,9 +3222,9 @@ paths:
         Amounts in minor units.
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
       responses:
         '200':
@@ -3238,21 +3239,23 @@ paths:
                   totals:
                     type: object
                     properties:
-                      regular: { type: integer }
-                      deposits: { type: integer }
-                      refunds: { type: integer }
-                      net: { type: integer }
+                      regular: { type: number }
+                      deposits: { type: number }
+                      refunds: { type: number }
+                      net: { type: number }
                   ledger:
                     type: array
+                    description: Newest-first; capped at 1000 entries (truncated=true when capped). Totals always cover the full set.
                     items:
                       type: object
                       properties:
                         kind: { type: string, enum: [payment, refund] }
                         date: { type: string, format: date-time }
                         customer: { type: string }
-                        paymentType: { type: string, enum: [regular, deposit] }
-                        paymentMethod: { type: string }
-                        amount: { type: integer }
+                        paymentType: { type: string, enum: [regular, deposit], description: Payment rows only — absent on refund rows }
+                        paymentMethod: { type: string, nullable: true, description: Payment rows only; null when no method was recorded }
+                        amount: { type: number, description: Negative on refund rows }
+                  truncated: { type: boolean, description: Present (true) when the ledger was capped at 1000 entries }
               example:
                 report: payments
                 period: { type: thisMonth, start: '2026-06-01T00:00:00.000+01:00', end: '2026-06-30T23:59:59.999+01:00', timezone: Europe/London }
@@ -3272,12 +3275,12 @@ paths:
         total is net of refunds.
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
         - { name: status, in: query, description: Which invoices to include, schema: { type: string, enum: [paid, unpaid, all], default: paid } }
-        - { name: dateField, in: query, description: Which date field the period filters on, schema: { type: string, enum: [dateCreated, dueDate, datePaid], default: datePaid } }
+        - { name: dateField, in: query, description: 'Which date field the period filters on. Defaults to datePaid for status=paid, otherwise dateCreated. datePaid is only valid with status=paid (unpaid invoices have no datePaid) — other combinations return 400.', schema: { type: string, enum: [dateCreated, dueDate, datePaid] } }
       responses:
         '200':
           description: Invoices summary report
@@ -3292,21 +3295,21 @@ paths:
                   totals:
                     type: object
                     properties:
-                      total: { type: integer }
+                      total: { type: number }
                       invoiceCount: { type: integer }
-                      travel: { type: integer }
-                      tips: { type: integer }
-                      discounts: { type: integer }
-                      refunds: { type: integer }
+                      travel: { type: number }
+                      tips: { type: number }
+                      discounts: { type: number }
+                      refunds: { type: number }
                   serviceBreakdown:
                     type: array
-                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: integer } } }
+                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: number } } }
                   paymentMethodBreakdown:
                     type: array
-                    items: { type: object, properties: { method: { type: string }, amount: { type: integer } } }
+                    items: { type: object, properties: { method: { type: string }, amount: { type: number } } }
                   customerBreakdown:
                     type: array
-                    items: { type: object, properties: { customerID: { type: string }, name: { type: string }, amount: { type: integer } } }
+                    items: { type: object, properties: { customerID: { type: string }, name: { type: string }, amount: { type: number } } }
 
   /reports/forecast:
     get:
@@ -3318,9 +3321,9 @@ paths:
         appointment list. Amounts in minor units.
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
       responses:
         '200':
@@ -3332,26 +3335,28 @@ paths:
                 properties:
                   report: { type: string }
                   period: { $ref: '#/components/schemas/ReportPeriod' }
-                  forecastTotal: { type: integer }
+                  forecastTotal: { type: number }
                   appointmentCount: { type: integer }
                   serviceBreakdown:
                     type: array
-                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: integer } } }
-                  additional: { type: object, properties: { travel: { type: integer }, tips: { type: integer }, discounts: { type: integer } } }
+                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: number } } }
+                  additional: { type: object, properties: { travel: { type: number }, tips: { type: number }, discounts: { type: number } } }
                   customerBreakdown:
                     type: array
-                    items: { type: object, properties: { customerID: { type: string }, amount: { type: integer } } }
+                    items: { type: object, properties: { customerID: { type: string }, amount: { type: number } } }
                   appointments:
                     type: array
+                    description: Capped at 1000 entries (truncated=true when capped); totals cover the full set.
                     items:
                       type: object
                       properties:
                         reference: { type: string }
                         startDate: { type: string, format: date-time }
-                        amount: { type: integer }
+                        amount: { type: number }
                         services:
                           type: array
                           items: { type: object, properties: { title: { type: string }, type: { type: string }, quantity: { type: integer } } }
+                  truncated: { type: boolean, description: Present (true) when the appointments list was capped at 1000 entries }
 
   /reports/payroll:
     get:
@@ -3364,9 +3369,9 @@ paths:
         pay. netPay = grossPay (no deductions). Amounts in minor units.
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
         - { name: payMode, in: query, schema: { type: string, enum: [perActivity, perHour], default: perActivity } }
         - { name: includeTravelDistance, in: query, schema: { type: boolean, default: false } }
@@ -3392,18 +3397,27 @@ paths:
                       properties:
                         id: { type: string }
                         name: { type: string }
-                        rates: { type: object, properties: { activityRate: { type: integer }, hourlyRate: { type: integer }, mileRate: { type: integer } } }
+                        picture: { type: string, nullable: true }
+                        rates: { type: object, properties: { activityRate: { type: number }, hourlyRate: { type: number }, mileRate: { type: number } } }
                         activityCount: { type: integer }
                         activityDurationSeconds: { type: integer }
+                        travel:
+                          type: object
+                          description: Travel pay is included in grossPay only when the matching includeTravel* param is true.
+                          properties:
+                            distanceMeters: { type: number }
+                            durationSeconds: { type: integer }
+                            distancePay: { type: number }
+                            durationPay: { type: number }
                         serviceBreakdown:
                           type: array
-                          items: { type: object, properties: { serviceID: { type: string }, serviceTitle: { type: string }, count: { type: integer }, durationSeconds: { type: integer }, rate: { type: integer }, total: { type: integer } } }
-                        grossPay: { type: integer }
-                        netPay: { type: integer }
+                          items: { type: object, properties: { serviceID: { type: string }, serviceTitle: { type: string }, serviceType: { type: string }, count: { type: integer }, durationSeconds: { type: integer }, rate: { type: number }, total: { type: number } } }
+                        grossPay: { type: number }
+                        netPay: { type: number, description: Always equals grossPay (no deductions) }
                   totals:
                     type: object
                     properties:
-                      totalGrossPay: { type: integer }
+                      totalGrossPay: { type: number }
                       totalActivities: { type: integer }
                       totalHours: { type: number }
                       averagePay: { type: number }
@@ -3418,9 +3432,9 @@ paths:
         and is not part of this report).
       tags: [Reports]
       parameters:
-        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
-        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
-        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
         - { name: unit, in: query, schema: { type: string, enum: [miles, km], default: km } }
         - { name: teamMemberIds, in: query, description: Comma-separated team member ids to filter by (matched on the logging team member), schema: { type: string } }
@@ -3443,6 +3457,7 @@ paths:
                       tripCount: { type: integer }
                   trips:
                     type: array
+                    description: Newest-first; capped at 1000 entries (truncated=true when capped). Summary covers the full set.
                     items:
                       type: object
                       properties:
@@ -3456,3 +3471,4 @@ paths:
                         teamMembers:
                           type: array
                           items: { type: object, properties: { id: { type: string }, name: { type: string } } }
+                  truncated: { type: boolean, description: Present (true) when the trips list was capped at 1000 entries }
