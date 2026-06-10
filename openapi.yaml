@@ -44,6 +44,23 @@ components:
       description: API key generated from the Walkies iOS app
 
   schemas:
+    ReportPeriod:
+      type: object
+      description: The resolved date range a report was computed over.
+      properties:
+        type:
+          type: string
+          enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom]
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+          description: Inclusive end of the period (…23:59:59.999 in the timezone).
+        timezone:
+          type: string
+          example: Europe/London
     Customer:
       type: object
       properties:
@@ -3136,3 +3153,306 @@ paths:
                 properties:
                   success:
                     type: boolean
+
+  # ── Reports ────────────────────────────────────────────────────────────────
+  # Server-side replicas of the iOS business reports — the API returns the same
+  # numbers the sitter sees in the app. Shared query params on every report:
+  #   period (thisWeek|thisMonth|thisQuarter|thisYear|custom, default thisMonth),
+  #   startDate & endDate (required when period=custom), timezone (IANA; defaults
+  #   to the company timezone). ALL money fields are MINOR UNITS (pennies/cents).
+  /reports/profit-loss:
+    get:
+      summary: Profit & Loss report
+      description: >-
+        Cash-basis P&L for the period. Income is payment-apportioned (each payment
+        contributes pro-rata to its invoice's services/travel/tips/discounts/tax;
+        fees are the literal per-payment fee when the customer pays fees; refunds
+        are attributed by refund date). Expenses are grouped by category. Net
+        profit = total income - total expenses. Amounts in minor units.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+      responses:
+        '200':
+          description: Profit & loss report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  income:
+                    type: object
+                    properties:
+                      serviceRevenue: { type: integer }
+                      travelRevenue: { type: integer }
+                      tipsRevenue: { type: integer }
+                      discounts: { type: integer }
+                      fees: { type: integer }
+                      refunds: { type: integer }
+                      taxCollected: { type: integer }
+                      totalIncome: { type: integer }
+                  expenses:
+                    type: object
+                    properties:
+                      byCategory:
+                        type: array
+                        items: { type: object, properties: { category: { type: string }, amount: { type: integer } } }
+                      total: { type: integer }
+                  netProfit: { type: integer }
+              example:
+                report: profit_loss
+                period: { type: thisMonth, start: '2026-06-01T00:00:00.000+01:00', end: '2026-06-30T23:59:59.999+01:00', timezone: Europe/London }
+                income: { serviceRevenue: 120000, travelRevenue: 5000, tipsRevenue: 3000, discounts: 2000, fees: 450, refunds: 0, taxCollected: 24000, totalIncome: 125550 }
+                expenses: { byCategory: [ { category: fuel, amount: 8000 } ], total: 8000 }
+                netProfit: 117550
+
+  /reports/payments:
+    get:
+      summary: Payments report (ledger)
+      description: >-
+        Bank-statement-style ledger of payments and refunds in the period. Totals
+        split into regular / deposits / refunds, with net = regular + deposits -
+        refunds. Ledger is sorted newest-first; refunds appear as negative amounts.
+        Amounts in minor units.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+      responses:
+        '200':
+          description: Payments report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  totals:
+                    type: object
+                    properties:
+                      regular: { type: integer }
+                      deposits: { type: integer }
+                      refunds: { type: integer }
+                      net: { type: integer }
+                  ledger:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string, enum: [payment, refund] }
+                        date: { type: string, format: date-time }
+                        customer: { type: string }
+                        paymentType: { type: string, enum: [regular, deposit] }
+                        paymentMethod: { type: string }
+                        amount: { type: integer }
+              example:
+                report: payments
+                period: { type: thisMonth, start: '2026-06-01T00:00:00.000+01:00', end: '2026-06-30T23:59:59.999+01:00', timezone: Europe/London }
+                totals: { regular: 100000, deposits: 20000, refunds: 5000, net: 115000 }
+                ledger:
+                  - { kind: payment, date: '2026-06-20T14:00:00.000+01:00', customer: Jane Smith, paymentType: regular, paymentMethod: Cash, amount: 5000 }
+                  - { kind: refund, date: '2026-06-15T11:00:00.000+01:00', customer: Ann Lee, amount: -1500 }
+
+  /reports/invoices-summary:
+    get:
+      summary: Invoices summary report
+      description: >-
+        Revenue analytics over invoices. Headline total is net of refunds, with a
+        service-type breakdown (amount + quantity), a payment-method breakdown, and
+        a per-customer breakdown. Amounts in minor units. NOTE the payment-method
+        breakdown uses the stored invoice amount (an iOS quirk), while every other
+        total is net of refunds.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+        - { name: status, in: query, description: Which invoices to include, schema: { type: string, enum: [paid, unpaid, all], default: paid } }
+        - { name: dateField, in: query, description: Which date field the period filters on, schema: { type: string, enum: [dateCreated, dueDate, datePaid], default: datePaid } }
+      responses:
+        '200':
+          description: Invoices summary report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  filter: { type: object, properties: { status: { type: string }, dateField: { type: string } } }
+                  totals:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      invoiceCount: { type: integer }
+                      travel: { type: integer }
+                      tips: { type: integer }
+                      discounts: { type: integer }
+                      refunds: { type: integer }
+                  serviceBreakdown:
+                    type: array
+                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: integer } } }
+                  paymentMethodBreakdown:
+                    type: array
+                    items: { type: object, properties: { method: { type: string }, amount: { type: integer } } }
+                  customerBreakdown:
+                    type: array
+                    items: { type: object, properties: { customerID: { type: string }, name: { type: string }, amount: { type: integer } } }
+
+  /reports/forecast:
+    get:
+      summary: Forecast report
+      description: >-
+        Projected revenue from confirmed appointments whose start falls in the
+        period (service totals + travel + tips - discounts; tax excluded).
+        Includes a service-type breakdown, a per-customer breakdown, and the
+        appointment list. Amounts in minor units.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+      responses:
+        '200':
+          description: Forecast report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  forecastTotal: { type: integer }
+                  appointmentCount: { type: integer }
+                  serviceBreakdown:
+                    type: array
+                    items: { type: object, properties: { type: { type: string }, quantity: { type: integer }, amount: { type: integer } } }
+                  additional: { type: object, properties: { travel: { type: integer }, tips: { type: integer }, discounts: { type: integer } } }
+                  customerBreakdown:
+                    type: array
+                    items: { type: object, properties: { customerID: { type: string }, amount: { type: integer } } }
+                  appointments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        reference: { type: string }
+                        startDate: { type: string, format: date-time }
+                        amount: { type: integer }
+                        services:
+                          type: array
+                          items: { type: object, properties: { title: { type: string }, type: { type: string }, quantity: { type: integer } } }
+
+  /reports/payroll:
+    get:
+      summary: Payroll report
+      description: >-
+        Per-team-member pay for the period over confirmed activities
+        (busy/holiday/birthday excluded). Two modes - perActivity (rate per
+        service, using the member's per-service rate or default activity rate) or
+        perHour (hours x hourly rate). Optionally includes travel distance/duration
+        pay. netPay = grossPay (no deductions). Amounts in minor units.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+        - { name: payMode, in: query, schema: { type: string, enum: [perActivity, perHour], default: perActivity } }
+        - { name: includeTravelDistance, in: query, schema: { type: boolean, default: false } }
+        - { name: includeTravelDuration, in: query, schema: { type: boolean, default: false } }
+        - { name: teamMemberId, in: query, description: Limit to a single team member, schema: { type: string } }
+      responses:
+        '200':
+          description: Payroll report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  payMode: { type: string }
+                  includeTravelDistance: { type: boolean }
+                  includeTravelDuration: { type: boolean }
+                  teamMembers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        rates: { type: object, properties: { activityRate: { type: integer }, hourlyRate: { type: integer }, mileRate: { type: integer } } }
+                        activityCount: { type: integer }
+                        activityDurationSeconds: { type: integer }
+                        serviceBreakdown:
+                          type: array
+                          items: { type: object, properties: { serviceID: { type: string }, serviceTitle: { type: string }, count: { type: integer }, durationSeconds: { type: integer }, rate: { type: integer }, total: { type: integer } } }
+                        grossPay: { type: integer }
+                        netPay: { type: integer }
+                  totals:
+                    type: object
+                    properties:
+                      totalGrossPay: { type: integer }
+                      totalActivities: { type: integer }
+                      totalHours: { type: number }
+                      averagePay: { type: number }
+
+  /reports/travel-logs:
+    get:
+      summary: Travel logs (mileage) report
+      description: >-
+        Distance/mileage report for tax. Total distance + trip count + per-trip
+        detail. Distance is returned both in raw meters and converted to the
+        requested unit (no monetary amount - mileage rate lives on the team member
+        and is not part of this report).
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: endDate, in: query, description: Required when period=custom, schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+        - { name: unit, in: query, schema: { type: string, enum: [miles, km], default: km } }
+        - { name: teamMemberIds, in: query, description: Comma-separated team member ids to filter by (matched on the logging team member), schema: { type: string } }
+      responses:
+        '200':
+          description: Travel logs report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  unit: { type: string }
+                  summary:
+                    type: object
+                    properties:
+                      totalDistanceMeters: { type: number }
+                      totalDistance: { type: number }
+                      tripCount: { type: integer }
+                  trips:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        startTime: { type: string, format: date-time }
+                        endTime: { type: string, format: date-time, nullable: true }
+                        durationSeconds: { type: integer, nullable: true }
+                        distanceMeters: { type: number }
+                        distance: { type: number }
+                        loggingTeamMember: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+                        teamMembers:
+                          type: array
+                          items: { type: object, properties: { id: { type: string }, name: { type: string } } }
