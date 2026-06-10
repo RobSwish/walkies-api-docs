@@ -25,12 +25,12 @@ info:
 
     ## Subscription
     The API requires a **Max subscription**. Requests from accounts without an active Max subscription receive a `403` response.
-  version: 1.0.4
+  version: 1.1.0
   contact:
     name: Walkies Support
     url: https://walkies.app
 servers:
-  - url: https://us-central1-walkies-log.cloudfunctions.net/zapierApi
+  - url: https://api.personalwalkies.com
     description: Production
 
 security:
@@ -481,6 +481,537 @@ components:
         error:
           type: string
 
+    ActivityTeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          example: Team Member
+        picture:
+          type: string
+          nullable: true
+    ActivityPet:
+      type: object
+      description: Embedded pet snapshot with per-activity tallies.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        breed:
+          type: string
+        type:
+          type: string
+          example: dog
+        picture:
+          type: string
+          nullable: true
+        customerID:
+          type: string
+        wees:
+          type: integer
+        poos:
+          type: integer
+        food:
+          type: integer
+        water:
+          type: integer
+        treat:
+          type: integer
+        medication:
+          type: integer
+        litterBox:
+          type: integer
+    ActivityWeather:
+      type: object
+      nullable: true
+      properties:
+        temperature:
+          type: number
+          nullable: true
+        condition:
+          type: string
+          example: cloudy
+    ActivityService:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+        cadence:
+          type: string
+    ChecklistItem:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        completed:
+          type: boolean
+    ActivityVideo:
+      type: object
+      properties:
+        thumbnail:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+    UpdatesSummary:
+      type: object
+      description: Timeline rollup. Raw GPS coordinates are never exposed.
+      properties:
+        count:
+          type: integer
+        photos:
+          type: integer
+        videos:
+          type: integer
+    Activity:
+      type: object
+      description: A recorded walk, taxi journey, or check-in (shared WalkiesActivity model). Raw GPS and device identifiers are excluded.
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: walk
+        companyID:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        startTime:
+          type: string
+          format: date-time
+          nullable: true
+        endTime:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: integer
+          description: Duration in seconds.
+        distance:
+          type: number
+          description: Distance in metres.
+        notes:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+        companyLogo:
+          type: string
+          nullable: true
+        streetAddress:
+          type: string
+        city:
+          type: string
+        postcode:
+          type: string
+        weather:
+          $ref: '#/components/schemas/ActivityWeather'
+        service:
+          $ref: '#/components/schemas/ActivityService'
+        dogs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityPet'
+        teamMembers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityTeamMember'
+        petSittingIDs:
+          type: array
+          items:
+            type: string
+        additionalChecklistItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        walkImages:
+          type: array
+          items:
+            type: string
+        walkVideos:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityVideo'
+        updates:
+          $ref: '#/components/schemas/UpdatesSummary'
+    PetSitting:
+      type: object
+      description: A boarding, daycare, overnight, or other pet sitting record. Raw GPS and device identifiers are excluded.
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: boarding
+        companyID:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        startTime:
+          type: string
+          format: date-time
+          nullable: true
+        endTime:
+          type: string
+          format: date-time
+          nullable: true
+        notes:
+          type: string
+        companyName:
+          type: string
+          nullable: true
+        companyLogo:
+          type: string
+          nullable: true
+        weather:
+          $ref: '#/components/schemas/ActivityWeather'
+        service:
+          $ref: '#/components/schemas/ActivityService'
+        pets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityPet'
+        teamMembers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityTeamMember'
+        additionalChecklistItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        updates:
+          $ref: '#/components/schemas/UpdatesSummary'
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Alex Walker
+        role:
+          type: string
+          enum: [Admin, Sub Admin, Team Member]
+        active:
+          type: boolean
+        email:
+          type: string
+          nullable: true
+        picture:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+          description: Hex colour used for the team member in the calendar (e.g. "#4287f5")
+          example: "#4287f5"
+        activityRate:
+          type: number
+          nullable: true
+          description: Pay rate per activity (pence/cents)
+        hourlyRate:
+          type: number
+          nullable: true
+          description: Pay rate per hour (pence/cents)
+        mileRate:
+          type: number
+          nullable: true
+          description: Pay rate per mile (pence/cents)
+        serviceRates:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+          description: Per-service pay rates keyed by service ID (pence/cents)
+    Contract:
+      type: object
+      properties:
+        id:
+          type: string
+        companyID:
+          type: string
+          nullable: true
+        title:
+          type: string
+          example: Pet Sitting Agreement
+        content:
+          type: string
+          description: Contract body. Newlines are preserved (stored internally with <br>).
+        template:
+          type: boolean
+        templateID:
+          type: string
+          nullable: true
+        customerID:
+          type: string
+          nullable: true
+        primaryCustomerName:
+          type: string
+          nullable: true
+        secondaryCustomerName:
+          type: string
+          nullable: true
+        signed:
+          type: boolean
+        signedDate:
+          type: string
+          format: date-time
+          nullable: true
+        signedBy:
+          type: string
+          nullable: true
+        sendToClients:
+          type: boolean
+        createdDate:
+          type: string
+          format: date-time
+    Checklist:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          example: New Client Onboarding
+        type:
+          type: string
+          enum: [customer, pet]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        pets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              customerID:
+                type: string
+        customers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              firstName:
+                type: string
+              lastName:
+                type: string
+    Address:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Home
+        lineOne:
+          type: string
+        lineTwo:
+          type: string
+        city:
+          type: string
+        postcode:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        lat:
+          type: number
+        long:
+          type: number
+    CustomUpdate:
+      type: object
+      description: A reusable custom timeline update (CustomTimelineUpdate).
+      properties:
+        id:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+          enum: [pet, general]
+        serviceTypes:
+          type: array
+          items:
+            type: string
+        customers:
+          type: array
+          items:
+            type: object
+        pets:
+          type: array
+          items:
+            type: object
+    TravelLog:
+      type: object
+      description: A recorded travel/mileage log. Read-only. Raw GPS coordinates are excluded.
+      properties:
+        id:
+          type: string
+        companyID:
+          type: string
+          nullable: true
+        distance:
+          type: number
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+          nullable: true
+        active:
+          type: boolean
+        pets:
+          type: array
+          items:
+            type: object
+        teamMembers:
+          type: array
+          items:
+            type: object
+        loggingTeamMember:
+          type: object
+          nullable: true
+        appointmentID:
+          type: string
+          nullable: true
+        startOdometerReading:
+          type: number
+          nullable: true
+        endOdometerReading:
+          type: number
+          nullable: true
+    Company:
+      type: object
+      description: Merged public company profile plus read-only counters. Region fields (country/currency/timezone) are read-only and cannot be set via PATCH.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        logo:
+          type: string
+          nullable: true
+        cover:
+          type: string
+          nullable: true
+        profile:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        address:
+          type: object
+          nullable: true
+        country:
+          type: string
+          readOnly: true
+        currency:
+          type: string
+          readOnly: true
+        timezone:
+          type: string
+          readOnly: true
+        preferredPaymentMethod:
+          type: string
+          nullable: true
+        preferredInvoiceType:
+          type: string
+          nullable: true
+        customerPaysFee:
+          type: boolean
+        serviceTax:
+          type: number
+          nullable: true
+        invoicesEnabled:
+          type: boolean
+        subscriptionStatus:
+          type: string
+          nullable: true
+          readOnly: true
+        teamMemberCount:
+          type: integer
+          readOnly: true
+        walkCount:
+          type: integer
+          readOnly: true
+        taxiCount:
+          type: integer
+          readOnly: true
+        petSittingCount:
+          type: integer
+          readOnly: true
+        checkInCount:
+          type: integer
+          readOnly: true
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        customerID:
+          type: string
+        customerFirstName:
+          type: string
+        customerLastName:
+          type: string
+        unreadCompanyMessageCount:
+          type: integer
+        unreadCustomerMessageCount:
+          type: integer
+        lastMessage:
+          type: object
+          nullable: true
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        message:
+          type: string
+        senderID:
+          type: string
+        customerID:
+          type: string
+        companyRead:
+          type: boolean
+        customerRead:
+          type: boolean
+        sentDate:
+          type: string
+          format: date-time
+          nullable: true
+
 paths:
   /me:
     get:
@@ -587,6 +1118,32 @@ paths:
                 $ref: '#/components/schemas/Customer'
 
   /customers/{id}:
+    delete:
+      summary: Delete Customer
+      description: Soft-deletes (archives) by default, reversible via POST /customers/{id}/restore. Pass ?hard=true with header X-Confirm-Delete:true to permanently delete and cascade conversations, messages and pets.
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hard
+          in: query
+          schema:
+            type: boolean
+        - name: X-Confirm-Delete
+          in: header
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Archived (soft) or permanently deleted (hard)
+        '400':
+          description: Hard delete attempted without the X-Confirm-Delete header
+        '404':
+          description: Customer not found
     get:
       summary: Get Customer
       tags: [Customers]
@@ -647,6 +1204,64 @@ paths:
                 $ref: '#/components/schemas/Customer'
 
   /pets:
+    post:
+      summary: Create Pet
+      tags: [Pets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, customerID, type, gender]
+              properties:
+                name:
+                  type: string
+                customerID:
+                  type: string
+                type:
+                  type: string
+                  enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+                gender:
+                  type: string
+                  enum: [Male, Female]
+                breed:
+                  type: string
+                weight:
+                  type: string
+                neutered:
+                  type: boolean
+                microchipped:
+                  type: boolean
+                medicalInformation:
+                  type: string
+                foodInformation:
+                  type: string
+                vetPhoneNumber:
+                  type: string
+                dobDay:
+                  type: integer
+                dobMonth:
+                  type: integer
+                dobYear:
+                  type: integer
+                imageUrl:
+                  type: string
+                imageBase64:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '400':
+          description: Validation error or customer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     get:
       summary: List Pets
       description: Returns pets. Optionally filter by customer or name.
@@ -727,6 +1342,61 @@ paths:
                 $ref: '#/components/schemas/Service'
 
   /services/{id}:
+    patch:
+      summary: Update Service
+      tags: [Services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                type:
+                  type: string
+                amount:
+                  type: number
+                  description: Amount in pence/cents
+                cadence:
+                  type: string
+                  enum: [perService, perDay, perNight]
+                description:
+                  type: string
+                duration:
+                  type: integer
+                hidden:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '404':
+          description: Service not found
+    delete:
+      summary: Delete Service
+      description: Soft-deletes the service (sets hidden=true) so existing invoice/appointment references are preserved.
+      tags: [Services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted (hidden)
+        '404':
+          description: Service not found
     get:
       summary: Get Service
       tags: [Services]
@@ -975,6 +1645,27 @@ paths:
                 $ref: '#/components/schemas/Expense'
 
   /announcements:
+    get:
+      summary: List Announcements
+      tags: [Announcements]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Announcement'
     post:
       summary: Create Announcement
       description: Creates an announcement that is sent to all customers.
@@ -1046,6 +1737,1308 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /walks:
+    get:
+      summary: List Walks
+      tags: [Walks]
+      parameters:
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activity'
+  /walks/{id}:
+    get:
+      summary: Get Walk
+      tags: [Walks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '404':
+          description: Walk not found
+  /taxis:
+    get:
+      summary: List Taxis
+      tags: [Taxis]
+      parameters:
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activity'
+  /taxis/{id}:
+    get:
+      summary: Get Taxi
+      tags: [Taxis]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '404':
+          description: Taxi not found
+  /checkins:
+    get:
+      summary: List Check-Ins
+      tags: [Check-Ins]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activity'
+  /checkins/{id}:
+    get:
+      summary: Get Check-In
+      tags: [Check-Ins]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '404':
+          description: Check-in not found
+  /petsittings:
+    get:
+      summary: List Pet Sittings
+      tags: [Pet Sittings]
+      parameters:
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [daycare, boarding, overnight, homeSitting, dropIn, training, grooming, meetAndGreet]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PetSitting'
+  /petsittings/{id}:
+    get:
+      summary: Get Pet Sitting
+      tags: [Pet Sittings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetSitting'
+        '404':
+          description: Pet sitting not found
+  /team:
+    get:
+      summary: List Team Members
+      description: Returns all team members for your company.
+      tags: [Team]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeamMember'
+    post:
+      summary: Create Team Member
+      tags: [Team]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role, active]
+              properties:
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [Admin, Sub Admin, Team Member]
+                active:
+                  type: boolean
+                email:
+                  type: string
+                picture:
+                  type: string
+                color:
+                  type: string
+                  description: Hex colour like "#rrggbb"
+                  example: "#4287f5"
+                activityRate:
+                  type: number
+                hourlyRate:
+                  type: number
+                mileRate:
+                  type: number
+                serviceRates:
+                  type: object
+                  additionalProperties:
+                    type: number
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMember'
+  /team/{id}:
+    get:
+      summary: Get Team Member
+      tags: [Team]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMember'
+        '404':
+          description: Team member not found
+    patch:
+      summary: Update Team Member
+      tags: [Team]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [Admin, Sub Admin, Team Member]
+                active:
+                  type: boolean
+                email:
+                  type: string
+                picture:
+                  type: string
+                color:
+                  type: string
+                  description: Hex colour like "#rrggbb"
+                activityRate:
+                  type: number
+                hourlyRate:
+                  type: number
+                mileRate:
+                  type: number
+                serviceRates:
+                  type: object
+                  additionalProperties:
+                    type: number
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMember'
+        '404':
+          description: Team member not found
+    delete:
+      summary: Delete Team Member
+      tags: [Team]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Team member not found
+  /contracts:
+    get:
+      summary: List Contracts
+      description: Returns all contracts and contract templates for your company.
+      tags: [Contracts]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Contract'
+    post:
+      summary: Create Contract
+      tags: [Contracts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content, template]
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                template:
+                  type: boolean
+                templateID:
+                  type: string
+                customerID:
+                  type: string
+                primaryCustomerName:
+                  type: string
+                secondaryCustomerName:
+                  type: string
+                sendToClients:
+                  type: boolean
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contract'
+  /contracts/{id}:
+    get:
+      summary: Get Contract
+      tags: [Contracts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contract'
+        '404':
+          description: Contract not found
+    patch:
+      summary: Update Contract
+      tags: [Contracts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                template:
+                  type: boolean
+                signed:
+                  type: boolean
+                signedBy:
+                  type: string
+                sendToClients:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contract'
+        '404':
+          description: Contract not found
+    delete:
+      summary: Delete Contract
+      tags: [Contracts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Contract not found
+  /checklists:
+    get:
+      summary: List Checklists
+      tags: [Checklists]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Checklist'
+    post:
+      summary: Create Checklist
+      tags: [Checklists]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, type]
+              properties:
+                title:
+                  type: string
+                type:
+                  type: string
+                  enum: [customer, pet]
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ChecklistItem'
+                petIDs:
+                  type: array
+                  items:
+                    type: string
+                customerIDs:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checklist'
+  /checklists/{id}:
+    get:
+      summary: Get Checklist
+      tags: [Checklists]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checklist'
+        '404':
+          description: Checklist not found
+    patch:
+      summary: Update Checklist
+      tags: [Checklists]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                type:
+                  type: string
+                  enum: [customer, pet]
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ChecklistItem'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Checklist'
+        '404':
+          description: Checklist not found
+    delete:
+      summary: Delete Checklist
+      tags: [Checklists]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Checklist not found
+  /company:
+    get:
+      summary: Get Company Profile
+      tags: [Company]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+    patch:
+      summary: Update Company Profile
+      description: Updates your company profile. Region fields (country, currency, timezone) are read-only and silently ignored.
+      tags: [Company]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                location:
+                  type: string
+                logo:
+                  type: string
+                color:
+                  type: string
+                preferredPaymentMethod:
+                  type: string
+                customerPaysFee:
+                  type: boolean
+                serviceTax:
+                  type: number
+                invoicesEnabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '400':
+          description: No updatable fields or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /conversations:
+    get:
+      summary: List Conversations
+      tags: [Messages]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+  /conversations/{id}/messages:
+    get:
+      summary: List Messages
+      tags: [Messages]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '404':
+          description: Conversation not found
+  /messages/broadcast:
+    post:
+      summary: Broadcast Message
+      description: Sends one message to all linked customers, or a subset via customerIDs.
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  maxLength: 5000
+                customerIDs:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Broadcast sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  sentTo:
+                    type: integer
+        '400':
+          description: No linked customers or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /addresses:
+    get:
+      summary: List Addresses
+      tags: [Addresses]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Address'
+    post:
+      summary: Create Address
+      tags: [Addresses]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                lineOne:
+                  type: string
+                lineTwo:
+                  type: string
+                city:
+                  type: string
+                postcode:
+                  type: string
+                state:
+                  type: string
+                country:
+                  type: string
+                lat:
+                  type: number
+                long:
+                  type: number
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+  /addresses/{id}:
+    delete:
+      summary: Delete Address
+      tags: [Addresses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Address not found
+  /custom-updates:
+    get:
+      summary: List Custom Updates
+      tags: [Custom Updates]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CustomUpdate'
+    post:
+      summary: Create Custom Update
+      tags: [Custom Updates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, type]
+              properties:
+                message:
+                  type: string
+                type:
+                  type: string
+                  enum: [pet, general]
+                serviceTypes:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUpdate'
+  /custom-updates/{id}:
+    delete:
+      summary: Delete Custom Update
+      tags: [Custom Updates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Custom update not found
+  /travel-logs:
+    get:
+      summary: List Travel Logs
+      tags: [Travel Logs]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TravelLog'
+  /travel-logs/{id}:
+    get:
+      summary: Get Travel Log
+      tags: [Travel Logs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TravelLog'
+        '404':
+          description: Travel log not found
+  /webhooks/{id}/test:
+    post:
+      summary: Test a Webhook
+      description: Sends a signed test payload to the webhook URL (re-validated against the SSRF guard) and reports the result.
+      tags: [Webhooks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery attempted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  statusCode:
+                    type: integer
+                  url:
+                    type: string
+        '400':
+          description: Webhook URL failed the safety check
+        '404':
+          description: Webhook not found
+  /customers/{id}/restore:
+    post:
+      summary: Restore Customer
+      description: Reverses a soft delete by setting the customer status back to active.
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '404':
+          description: Customer not found
+  /pets/{id}:
+    patch:
+      summary: Update Pet
+      tags: [Pets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                breed:
+                  type: string
+                weight:
+                  type: string
+                neutered:
+                  type: boolean
+                microchipped:
+                  type: boolean
+                medicalInformation:
+                  type: string
+                foodInformation:
+                  type: string
+                vetPhoneNumber:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, archived, passedAway]
+                imageUrl:
+                  type: string
+                imageBase64:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '404':
+          description: Pet not found
+    delete:
+      summary: Delete Pet
+      description: Soft-archives by default (status=archived). Pass ?hard=true with header X-Confirm-Delete:true to permanently delete.
+      tags: [Pets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: hard
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: X-Confirm-Delete
+          in: header
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Archived or deleted
+        '400':
+          description: Hard delete requires confirmation header
+        '404':
+          description: Pet not found
+  /appointments/{id}:
+    patch:
+      summary: Update Appointment
+      description: Updates schedule/status fields. Does not change services.
+      tags: [Appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [confirmed, requested, declined]
+                startDate:
+                  type: string
+                  format: date-time
+                endDate:
+                  type: string
+                  format: date-time
+                timezone:
+                  type: string
+                allDay:
+                  type: boolean
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+        '404':
+          description: Appointment not found
+    delete:
+      summary: Delete Appointment
+      tags: [Appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Appointment not found
+  /invoices/{id}:
+    patch:
+      summary: Update Invoice
+      tags: [Invoices]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                paymentMethod:
+                  type: string
+                dueDate:
+                  type: string
+                  format: date-time
+                amount:
+                  type: integer
+                  description: Invoice total in pence/cents
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '404':
+          description: Invoice not found
+    delete:
+      summary: Delete Invoice
+      description: Deletes an unpaid invoice. Paid invoices cannot be deleted.
+      tags: [Invoices]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '400':
+          description: Cannot delete a paid invoice
+        '404':
+          description: Invoice not found
+  /invoices/{id}/pay:
+    post:
+      summary: Mark Invoice Paid
+      description: Marks the invoice paid, stamps datePaid, and appends a payment record.
+      tags: [Invoices]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentMethod:
+                  type: string
+      responses:
+        '200':
+          description: Invoice marked paid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          description: Invoice is already paid
+        '404':
+          description: Invoice not found
+  /expenses/{id}:
+    patch:
+      summary: Update Expense
+      tags: [Expenses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+                  description: Expense amount in pence/cents
+                category:
+                  type: string
+                date:
+                  type: string
+                  format: date-time
+                notes:
+                  type: string
+                vendor:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '404':
+          description: Expense not found
+    delete:
+      summary: Delete Expense
+      tags: [Expenses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Expense not found
+  /expenses/{id}/reimburse:
+    post:
+      summary: Reimburse Expense
+      description: Marks the expense reimbursed and stamps reimbursedDate.
+      tags: [Expenses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                teamMemberID:
+                  type: string
+      responses:
+        '200':
+          description: Expense marked reimbursed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          description: Expense is already reimbursed
+        '404':
+          description: Expense not found
+  /announcements/{id}:
+    get:
+      summary: Get Announcement
+      tags: [Announcements]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '404':
+          description: Announcement not found
+    patch:
+      summary: Update Announcement
+      tags: [Announcements]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                message:
+                  type: string
+                imageUrl:
+                  type: string
+                imageBase64:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '404':
+          description: Announcement not found
+    delete:
+      summary: Delete Announcement
+      tags: [Announcements]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Announcement not found
   /webhooks:
     get:
       summary: List Webhook Subscriptions
