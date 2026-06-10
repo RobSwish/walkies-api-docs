@@ -1953,7 +1953,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, role, active]
+              required: [name, role]
               properties:
                 name:
                   type: string
@@ -2834,9 +2834,6 @@ paths:
                 dueDate:
                   type: string
                   format: date-time
-                amount:
-                  type: integer
-                  description: Invoice total in pence/cents
       responses:
         '200':
           description: Updated
