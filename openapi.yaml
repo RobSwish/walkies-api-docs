@@ -433,6 +433,7 @@ components:
               - petsitting.started
               - petsitting.finished
               - petsitting.readyForPickup
+              - activity.feedUpdated
               - message.received
               - contract.signed
               - announcement.created
@@ -1485,6 +1486,13 @@ paths:
                   items:
                     type: string
                   description: Customer IDs (auto-derived from pets if not provided)
+                createdByTeamMemberID:
+                  type: string
+                  description: >-
+                    Optional. The team member to record as the creator of this appointment, validated
+                    against your team (an unknown id returns 400). When set, it is stored on the
+                    appointment as the creator. When omitted, the appointment is created with no
+                    creator attribution (the field is left unset).
                 invoiceType:
                   type: string
                   enum: [none, single, whenStarted]
@@ -2788,6 +2796,12 @@ paths:
                   type: boolean
                 notes:
                   type: string
+                updatedByTeamMemberID:
+                  type: string
+                  description: >-
+                    Optional. The team member to record as having made this update, validated against
+                    your team (an unknown id returns 400). When set, it is stored on the appointment as
+                    the last updater. When omitted, no updater is recorded for this change.
       responses:
         '200':
           description: Updated
@@ -3087,6 +3101,7 @@ paths:
                       - petsitting.started
                       - petsitting.finished
                       - petsitting.readyForPickup
+                      - activity.feedUpdated
                       - message.received
                       - contract.signed
                       - announcement.created
