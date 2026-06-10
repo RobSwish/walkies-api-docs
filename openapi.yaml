@@ -371,8 +371,8 @@ components:
         id:
           type: string
         amount:
-          type: number
-          description: Amount in your currency
+          type: integer
+          description: Amount in minor units (pence/cents) — e.g. 1000 = £10.00.
         category:
           type: string
           enum: [fuel, mileage, petSupplies, insurance, vehicleMaintenance, marketing, officeSupplies, vetSupplies, software, equipment, training, other]
@@ -1336,8 +1336,10 @@ paths:
                   type: string
                   enum: [walk, dropin, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other]
                 amount:
-                  type: number
-                  description: Amount in pence/cents
+                  type: integer
+                  description: >-
+                    Price in MINOR UNITS (pence/cents), NOT major units. Multiply the user's amount
+                    by 100 — e.g. £25.00 = 2500, £10 = 1000.
                   example: 2500
                 cadence:
                   type: string
@@ -1349,8 +1351,8 @@ paths:
                   type: integer
                   description: Duration in minutes
                 additionalPetAmount:
-                  type: number
-                  description: Extra charge per additional pet (pence/cents)
+                  type: integer
+                  description: Extra charge per additional pet, in MINOR UNITS (pence/cents) — × 100, e.g. £5 = 500.
       responses:
         '201':
           description: Created
@@ -1478,6 +1480,7 @@ paths:
                 endDate:
                   type: string
                   format: date-time
+                  description: When omitted, defaults to startDate plus the primary service's duration (minutes); falls back to startDate if the service has no duration.
                 timezone:
                   type: string
                   default: UTC
@@ -1633,8 +1636,11 @@ paths:
               required: [amount, category, date]
               properties:
                 amount:
-                  type: number
-                  description: Amount in your currency
+                  type: integer
+                  description: >-
+                    Amount in MINOR UNITS (pence/cents), NOT major units. Multiply the user's amount
+                    by 100 — e.g. £10.00 = 1000, £12.50 = 1250, $5 = 500.
+                  example: 1000
                 category:
                   type: string
                   enum: [fuel, mileage, petSupplies, insurance, vehicleMaintenance, marketing, officeSupplies, vetSupplies, software, equipment, training, other]
@@ -1996,15 +2002,19 @@ paths:
                   description: Hex colour like "#rrggbb"
                   example: "#4287f5"
                 activityRate:
-                  type: number
+                  type: integer
+                  description: Per-activity pay rate in MINOR UNITS (pence/cents) — × 100, e.g. £8 = 800.
                 hourlyRate:
-                  type: number
+                  type: integer
+                  description: Hourly pay rate in MINOR UNITS (pence/cents) — × 100, e.g. £12.50 = 1250.
                 mileRate:
-                  type: number
+                  type: integer
+                  description: Pay per mile in MINOR UNITS (pence/cents) — × 100, e.g. £0.45 = 45.
                 serviceRates:
                   type: object
+                  description: Per-service pay rates, keyed by service id; each value in MINOR UNITS (pence/cents).
                   additionalProperties:
-                    type: number
+                    type: integer
       responses:
         '201':
           description: Created
@@ -2061,15 +2071,19 @@ paths:
                   type: string
                   description: Hex colour like "#rrggbb"
                 activityRate:
-                  type: number
+                  type: integer
+                  description: Per-activity pay rate in MINOR UNITS (pence/cents) — × 100, e.g. £8 = 800.
                 hourlyRate:
-                  type: number
+                  type: integer
+                  description: Hourly pay rate in MINOR UNITS (pence/cents) — × 100, e.g. £12.50 = 1250.
                 mileRate:
-                  type: number
+                  type: integer
+                  description: Pay per mile in MINOR UNITS (pence/cents) — × 100, e.g. £0.45 = 45.
                 serviceRates:
                   type: object
+                  description: Per-service pay rates, keyed by service id; each value in MINOR UNITS (pence/cents).
                   additionalProperties:
-                    type: number
+                    type: integer
       responses:
         '200':
           description: Updated
@@ -2894,7 +2908,11 @@ paths:
   /appointments/{id}:
     patch:
       summary: Update Appointment
-      description: Updates schedule/status fields. Does not change services.
+      description: >-
+        Updates schedule/status fields, reassigns team members, and changes the service or add-ons.
+        Changing the service to one with a different cadence (perService/perDay/perNight) affects how
+        billing quantity is derived; when that happens the response includes a `warning` and the dates
+        are left unchanged (pass startDate/endDate to adjust them).
       tags: [Appointments]
       parameters:
         - name: id
@@ -2923,6 +2941,30 @@ paths:
                   type: boolean
                 notes:
                   type: string
+                serviceID:
+                  type: string
+                  description: >-
+                    Optional. Changes the primary service (look up ids via GET /services). If the new
+                    service has a different cadence (perService/perDay/perNight) the response includes a
+                    `warning` and the dates are NOT auto-adjusted — review them and pass startDate/endDate
+                    if the duration should change.
+                additionalServiceIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Optional. Sets the add-on services on this appointment (look up ids via GET /services).
+                    Sending this REPLACES the current add-ons, so include every add-on that should remain.
+                    Send an empty array to remove all add-ons.
+                teamMemberIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Optional. Reassigns the team members (sitters) on this appointment. Each id is
+                    resolved against your team; unknown ids are skipped. Sending this REPLACES the
+                    current assignee list, so include every team member who should be assigned (look
+                    up ids via GET /team). Omit to leave the assignees unchanged.
                 updatedByTeamMemberID:
                   type: string
                   description: >-
