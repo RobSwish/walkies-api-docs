@@ -1581,12 +1581,13 @@ paths:
                 paymentMethod:
                   type: string
                   enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
-                  default: None
+                  description: Defaults to your company's preferred payment method (Settings) when omitted.
                 notes:
                   type: string
                 dueDate:
                   type: string
                   format: date-time
+                  description: Defaults to your company's invoice terms (creation date + due-date offset days, default 7) when omitted.
                 travelAmount:
                   type: number
                   description: Travel charge (pence/cents)
