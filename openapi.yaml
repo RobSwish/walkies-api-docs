@@ -1513,6 +1513,13 @@ paths:
                     against your team (an unknown id returns 400). When set, it is stored on the
                     appointment as the creator. When omitted, the appointment is created with no
                     creator attribution (the field is left unset).
+                confirmOverlap:
+                  type: boolean
+                  description: >-
+                    If the new appointment overlaps an existing one (same team member or pet), the
+                    API returns 200 with `{ requiresConfirmation: true, warning }` and does NOT book.
+                    Re-send the request with confirmOverlap=true to book anyway. (External API keys
+                    instead book immediately and get a `warning` on the created appointment.)
                 invoiceType:
                   type: string
                   enum: [none, single, whenStarted]
@@ -2972,6 +2979,13 @@ paths:
                     Optional. The team member to record as having made this update, validated against
                     your team (an unknown id returns 400). When set, it is stored on the appointment as
                     the last updater. When omitted, no updater is recorded for this change.
+                confirmOverlap:
+                  type: boolean
+                  description: >-
+                    When rescheduling to a time that overlaps another appointment (same team member or
+                    pet), the API returns 200 with `{ requiresConfirmation: true, warning }` and does NOT
+                    apply the change. Re-send with confirmOverlap=true to reschedule anyway. (External API
+                    keys instead apply immediately and get a `warning`.)
       responses:
         '200':
           description: Updated
