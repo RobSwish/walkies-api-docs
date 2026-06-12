@@ -952,6 +952,33 @@ components:
               end:
                 type: string
                 description: Block end, 24-hour HH:mm (e.g. 17:00)
+    WorkingDay:
+      type: object
+      description: >-
+        The regular WEEKLY working/opening hours for one weekday. closed=true means
+        no hours that weekday (times is empty). Blocks are non-overlapping.
+      properties:
+        day:
+          type: integer
+          description: Weekday index, 0=Sunday … 6=Saturday
+        dayName:
+          type: string
+          description: Weekday name (e.g. Monday)
+        closed:
+          type: boolean
+          description: true = closed that weekday (times is empty)
+        times:
+          type: array
+          description: Open time blocks for the weekday (empty when closed)
+          items:
+            type: object
+            properties:
+              start:
+                type: string
+                description: Block start, 24-hour HH:mm (e.g. 09:00)
+              end:
+                type: string
+                description: Block end, 24-hour HH:mm (e.g. 17:00)
     Company:
       type: object
       description: Merged public company profile plus read-only counters. Region fields (country/currency/timezone) are read-only and cannot be set via PATCH.
@@ -2987,6 +3014,84 @@ paths:
                     type: boolean
         '404':
           description: Special hours entry not found
+  /working-hours:
+    get:
+      summary: List Working Hours
+      description: The regular weekly opening hours for all 7 weekdays (0=Sunday … 6=Saturday).
+      tags: [Working Hours]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkingDay'
+  /working-hours/{day}:
+    get:
+      summary: Get Working Hours for a Weekday
+      tags: [Working Hours]
+      parameters:
+        - name: day
+          in: path
+          required: true
+          description: Weekday — 0–6 (0=Sunday) or a name like "Monday"
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkingDay'
+        '400':
+          description: Invalid weekday
+    patch:
+      summary: Set Working Hours for a Weekday
+      description: >-
+        Replaces the regular weekly hours for one weekday. Send `times` as an array of
+        non-overlapping { start, end } blocks in 24-hour HH:mm; send an empty array to
+        mark that weekday closed.
+      tags: [Working Hours]
+      parameters:
+        - name: day
+          in: path
+          required: true
+          description: Weekday — 0–6 (0=Sunday) or a name like "Monday"
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [times]
+              properties:
+                times:
+                  type: array
+                  description: Non-overlapping open blocks for the weekday ([] = closed)
+                  items:
+                    type: object
+                    required: [start, end]
+                    properties:
+                      start:
+                        type: string
+                        description: 24-hour HH:mm, e.g. 09:00
+                      end:
+                        type: string
+                        description: 24-hour HH:mm, e.g. 17:00 (must be after start)
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkingDay'
+        '400':
+          description: Validation error (invalid weekday, bad times, or overlapping blocks)
   /webhooks/{id}/test:
     post:
       summary: Test a Webhook
