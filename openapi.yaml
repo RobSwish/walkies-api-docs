@@ -924,6 +924,34 @@ components:
         endOdometerReading:
           type: number
           nullable: true
+    SpecialHours:
+      type: object
+      description: >-
+        A date-specific exception to the normal weekly opening hours — a day off,
+        holiday, or one-off different hours. closed=true means not working that whole
+        day (times is empty). The date is in the company timezone.
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+          format: date
+          description: The calendar date this applies to (YYYY-MM-DD, in the company timezone)
+        closed:
+          type: boolean
+          description: true = closed / not working all day; false = open with the time blocks below
+        times:
+          type: array
+          description: Open time blocks for the day (empty when closed)
+          items:
+            type: object
+            properties:
+              start:
+                type: string
+                description: Block start, 24-hour HH:mm (e.g. 09:00)
+              end:
+                type: string
+                description: Block end, 24-hour HH:mm (e.g. 17:00)
     Company:
       type: object
       description: Merged public company profile plus read-only counters. Region fields (country/currency/timezone) are read-only and cannot be set via PATCH.
@@ -1469,11 +1497,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [type, startDate]
+              required: [startDate]
               properties:
-                type:
-                  type: string
-                  enum: [walk, checkIn, taxi, daycare, boarding, homeSitting, overnight, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
                 startDate:
                   type: string
                   format: date-time
@@ -1490,7 +1515,7 @@ paths:
                   default: confirmed
                 serviceID:
                   type: string
-                  description: ID of a service from GET /services
+                  description: ID of a service from GET /services. The appointment's `type` is derived from this service (a "dropin" service becomes a "checkIn" appointment); a service-less appointment is "other". `type` cannot be set directly.
                 petIDs:
                   type: array
                   items:
@@ -2789,6 +2814,159 @@ paths:
                     type: boolean
         '404':
           description: Travel log not found
+  /special-hours:
+    get:
+      summary: List Special Hours
+      tags: [Special Hours]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SpecialHours'
+    post:
+      summary: Create Special Hours
+      description: >-
+        Add a date-specific exception to the normal weekly hours. For a day off /
+        holiday, send closed=true and omit times. For a day with different open hours,
+        send closed=false with one or more { start, end } blocks in 24-hour HH:mm. The
+        date is stored at midnight in the company timezone. To avoid duplicates, check
+        the date isn't already set (GET /special-hours) before creating.
+      tags: [Special Hours]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: Calendar date this applies to (YYYY-MM-DD)
+                closed:
+                  type: boolean
+                  description: true = closed / not working all day (default false). When true, times is ignored.
+                times:
+                  type: array
+                  description: Open time blocks (only when closed is false)
+                  items:
+                    type: object
+                    required: [start, end]
+                    properties:
+                      start:
+                        type: string
+                        description: 24-hour HH:mm, e.g. 09:00
+                      end:
+                        type: string
+                        description: 24-hour HH:mm, e.g. 17:00 (must be after start)
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpecialHours'
+        '400':
+          description: Validation error
+  /special-hours/{id}:
+    get:
+      summary: Get Special Hours
+      tags: [Special Hours]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpecialHours'
+        '404':
+          description: Special hours entry not found
+    patch:
+      summary: Update Special Hours
+      description: >-
+        Update a special-hours entry. Setting closed=true clears any time blocks;
+        setting closed=false lets you supply new open blocks.
+      tags: [Special Hours]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                closed:
+                  type: boolean
+                times:
+                  type: array
+                  items:
+                    type: object
+                    required: [start, end]
+                    properties:
+                      start:
+                        type: string
+                        description: 24-hour HH:mm
+                      end:
+                        type: string
+                        description: 24-hour HH:mm
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpecialHours'
+        '404':
+          description: Special hours entry not found
+    delete:
+      summary: Delete Special Hours
+      description: Removes the entry so the date reverts to the normal weekly hours.
+      tags: [Special Hours]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '404':
+          description: Special hours entry not found
   /webhooks/{id}/test:
     post:
       summary: Test a Webhook
@@ -2952,7 +3130,8 @@ paths:
                 serviceID:
                   type: string
                   description: >-
-                    Optional. Changes the primary service (look up ids via GET /services). If the new
+                    Optional. Changes the primary service (look up ids via GET /services). The appointment's
+                    `type` updates automatically to match the new service. If the new
                     service has a different cadence (perService/perDay/perNight) the response includes a
                     `warning` and the dates are NOT auto-adjusted — review them and pass startDate/endDate
                     if the duration should change.
