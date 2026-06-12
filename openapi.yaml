@@ -1525,7 +1525,10 @@ paths:
                   type: array
                   items:
                     type: string
-                  description: Team member IDs to assign
+                  description: >-
+                    Team member IDs to assign. When omitted on a single-person team, the
+                    sole team member is auto-assigned (mirrors the app); multi-person
+                    teams are left unassigned.
                 customerIDs:
                   type: array
                   items:
@@ -1548,7 +1551,24 @@ paths:
                 invoiceType:
                   type: string
                   enum: [none, single, whenStarted]
-                  default: none
+                  description: >-
+                    How the appointment is billed. When omitted, it's resolved from the
+                    client's preferredInvoiceType, then the company's, then 'none'. (A
+                    client/company preference of recurring or prePaid — which the API
+                    can't reproduce — resolves to 'none'.)
+                paymentMethod:
+                  type: string
+                  description: >-
+                    Optional override for the generated invoice's payment method. When
+                    omitted, it's resolved from the client's preferredPaymentMethod, then
+                    the company's, then 'None'.
+                deposit:
+                  type: boolean
+                  description: >-
+                    Optional. Whether the generated invoice applies the company's default
+                    deposit (depositPercentage). Defaults to true when the appointment is
+                    invoiced (invoiceType is not 'none'), false otherwise. The due date
+                    always follows the company's dueDateOffset.
                 allDay:
                   type: boolean
                   default: false
