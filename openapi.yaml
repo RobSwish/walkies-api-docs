@@ -3287,6 +3287,42 @@ paths:
           description: Invoice is already paid
         '404':
           description: Invoice not found
+  /invoices/merge:
+    post:
+      summary: Merge Invoices
+      description: >-
+        Combine several UNPAID invoices for the SAME customer into one invoice —
+        concatenating their line items and summing the totals (amount, travel, tip,
+        discount, tax, deposit) losslessly — then delete the originals, atomically. All
+        invoices must belong to the same customer, use the same currency, and be fully
+        unpaid (paid invoices or invoices that already have payments are rejected so
+        payment history is never lost). The merged invoice's due date is the earliest of
+        the originals'.
+      tags: [Invoices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoiceIDs]
+              properties:
+                invoiceIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: The ids of the 2+ invoices to merge
+      responses:
+        '201':
+          description: Merged invoice created (originals deleted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          description: Validation error (different customers/currencies, paid invoices, or fewer than 2 ids)
+        '404':
+          description: One or more invoices not found
   /expenses/{id}:
     patch:
       summary: Update Expense
