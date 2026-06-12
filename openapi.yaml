@@ -3135,6 +3135,16 @@ paths:
                 status:
                   type: string
                   enum: [confirmed, requested, declined]
+                  description: >-
+                    Set to confirmed on a requested appointment to ACCEPT the request. On
+                    accept, the customer is notified by default (set notifyCustomer:false
+                    to suppress).
+                notifyCustomer:
+                  type: boolean
+                  description: >-
+                    Only applies when accepting a request (requested → confirmed). Defaults
+                    to true (the customer gets an "appointment accepted" notification);
+                    set false to accept without notifying.
                 startDate:
                   type: string
                   format: date-time
