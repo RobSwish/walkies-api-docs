@@ -113,6 +113,11 @@ components:
           type: string
           nullable: true
           enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+        preferredInvoiceType:
+          type: string
+          nullable: true
+          description: This client's default billing/invoice type (takes priority over the company default).
+          enum: [single, whenStarted, prePaid, recurring, none]
         status:
           type: string
           enum: [active, archived]
@@ -1282,6 +1287,10 @@ paths:
                 preferredPaymentMethod:
                   type: string
                   enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+                preferredInvoiceType:
+                  type: string
+                  description: This client's default billing/invoice type.
+                  enum: [single, whenStarted, prePaid, recurring, none]
                 secondaryFirstName:
                   type: string
                 secondaryLastName:
@@ -1376,6 +1385,14 @@ paths:
                   type: string
                 notes:
                   type: string
+                preferredPaymentMethod:
+                  type: string
+                  description: This client's default payment method.
+                  enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
+                preferredInvoiceType:
+                  type: string
+                  description: This client's default billing/invoice type (priority over the company default).
+                  enum: [single, whenStarted, prePaid, recurring, none]
                 imageUrl:
                   type: string
                   description: URL of a profile picture (max 5MB)
@@ -3004,9 +3021,11 @@ paths:
     post:
       summary: Create Recurring Invoice
       description: >-
-        Create an automatic invoice schedule for a customer. status defaults to active;
-        the first run is computed from frequency/dayOfWeek/timeOfDay in the company
-        timezone; paymentMethod + dueDateOffset default from company settings.
+        Create an automatic invoice schedule for a customer. A client may have only ONE
+        recurring invoice — if one already exists this returns 409 (with the existing id);
+        update that one instead. status defaults to active; the first run is computed from
+        frequency/dayOfWeek/timeOfDay in the company timezone; paymentMethod + dueDateOffset
+        default from company settings. The response includes nextGenerationDate (the next run).
       tags: [Recurring Invoices]
       requestBody:
         required: true
@@ -3027,6 +3046,7 @@ paths:
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/RecurringInvoice' } } } }
         '400': { description: Validation error }
+        '409': { description: The client already has a recurring invoice (update it instead); response includes existingId }
   /recurring-invoices/{id}:
     get:
       summary: Get Recurring Invoice
