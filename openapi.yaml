@@ -4427,6 +4427,56 @@ paths:
                       totalHours: { type: number }
                       averagePay: { type: number }
 
+  /invoices/{id}/export:
+    post:
+      summary: Export Invoice (email PDF)
+      description: >-
+        Generates the invoice/receipt PDF (identical to the in-app export) and EMAILS it as an
+        attachment. Recipient is `email` if provided, otherwise the team member's on-file email
+        (resolved from `teamMemberID`); returns 400 if neither resolves.
+      tags: [Invoices]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, description: Send to this address (overrides the on-file lookup). }
+                teamMemberID: { type: string, description: Resolve the recipient from this team member's on-file email. }
+      responses:
+        '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, sentTo: { type: string }, filename: { type: string } } } } } }
+        '400': { description: No recipient email available, or invalid email }
+        '404': { description: Invoice not found }
+  /reports/{type}/export:
+    post:
+      summary: Export Report (email CSV)
+      description: >-
+        Builds the report CSV (matching the in-app export) and EMAILS it as an attachment.
+        `type` is one of profit-loss, payments, invoices-summary, forecast, payroll, travel-logs.
+        Period/date range and report-specific options go in the body (same as the GET report
+        endpoints). Recipient is `email` or the team member's on-file email (`teamMemberID`).
+      tags: [Reports]
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string, enum: [profit-loss, payments, invoices-summary, forecast, payroll, travel-logs] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom] }
+                startDate: { type: string }
+                endDate: { type: string }
+                email: { type: string }
+                teamMemberID: { type: string }
+                status: { type: string, enum: [paid, unpaid, all], description: invoices-summary only }
+                payMode: { type: string, enum: [perActivity, perHour], description: payroll only }
+                unit: { type: string, enum: [miles, km], description: travel-logs only }
+      responses:
+        '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, sentTo: { type: string }, filename: { type: string }, truncated: { type: boolean } } } } } }
+        '400': { description: Unknown report type, no recipient email, or invalid range }
   /reports/travel-logs:
     get:
       summary: Travel logs (mileage) report
