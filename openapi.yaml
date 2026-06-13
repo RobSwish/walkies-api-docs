@@ -2606,7 +2606,7 @@ paths:
                   type: string
                 address:
                   type: object
-                  description: Company business address. Sub-fields firstLine, secondLine, city, postcode, lat, long. Deep-merged — send only the fields you're changing.
+                  description: Company business address. Sub-fields firstLine, secondLine, city, postcode, lat, long. Deep-merged — send only the fields you're changing; send the whole object as null to clear it.
                   properties:
                     firstLine: { type: string }
                     secondLine: { type: string }
@@ -2647,7 +2647,7 @@ paths:
                   description: Minutes before the appointment to send the reminder (e.g. 30).
                 bankTransfer:
                   type: object
-                  description: Bank-transfer details. Deep-merged — send only the fields you're changing.
+                  description: Bank-transfer details. Deep-merged — send only the fields you're changing; send the whole object as null to clear it, or a sub-field as "" to clear that field.
                   properties:
                     accountNumber: { type: string }
                     routingNumber: { type: string, description: US routing / UK sort code / CA transit number. }
