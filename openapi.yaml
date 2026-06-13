@@ -1710,16 +1710,17 @@ paths:
                   type: string
                   enum: [none, single, whenStarted]
                   description: >-
-                    How the appointment is billed. When omitted, it's resolved from the
-                    client's preferredInvoiceType, then the company's, then 'none'. (A
-                    client/company preference of recurring or prePaid — which the API
-                    can't reproduce — resolves to 'none'.)
+                    How the appointment is billed. DEFAULTS TO 'none' — booking does NOT
+                    create an invoice unless you explicitly pass 'single' (invoice now) or
+                    'whenStarted' (invoice when the visit starts). Client/company billing
+                    preferences are NOT auto-applied; create an invoice separately if needed.
                 paymentMethod:
                   type: string
                   description: >-
-                    Optional override for the generated invoice's payment method. When
-                    omitted, it's resolved from the client's preferredPaymentMethod, then
-                    the company's, then 'None'.
+                    Optional override for the generated invoice's payment method (only used
+                    when invoiceType is single/whenStarted). When omitted on an invoiced
+                    appointment, it's resolved from the client's preferredPaymentMethod, then
+                    the company's, then 'None'. Ignored when there's no invoice.
                 deposit:
                   type: boolean
                   description: >-
