@@ -4427,6 +4427,28 @@ paths:
                       totalHours: { type: number }
                       averagePay: { type: number }
 
+  /invoices/{id}/remind:
+    post:
+      summary: Send Invoice Reminder
+      description: >-
+        Sends a one-off unpaid-invoice reminder to the client — the same notification the
+        app's "Send reminder" button sends (amount due + how to pay). The invoice must be
+        UNPAID (a paid invoice returns 400). This is a manual nudge, separate from the
+        automatic reminder schedule.
+      tags: [Invoices]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                teamMemberID: { type: string, description: The sender — pre-marks the reminder's activity-feed row read for them. }
+      responses:
+        '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, invoiceID: { type: string }, remindedCustomers: { type: integer } } } } } }
+        '400': { description: Invoice already paid, or no client to remind }
+        '404': { description: Invoice not found }
   /invoices/{id}/export:
     post:
       summary: Export Invoice (email PDF)
