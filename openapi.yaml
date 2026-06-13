@@ -1119,7 +1119,7 @@ components:
         bankTransfer:
           type: object
           nullable: true
-          description: Bank-transfer details. Sub-fields accountNumber and routingNumber (US routing / UK sort code / CA transit). Replaces the whole object on write.
+          description: Bank-transfer details. Sub-fields accountNumber and routingNumber (US routing / UK sort code / CA transit). Deep-merged on PATCH — send only the fields you're changing.
           properties:
             accountNumber: { type: string }
             routingNumber: { type: string }
@@ -2586,7 +2586,7 @@ paths:
         (country, currency, timezone) are read-only here and silently ignored — use
         PATCH /settings/region for those. Enabling invoiceRemindersEnabled or appointmentReminders
         requires a Max subscription (otherwise 403). The `address` and `bankTransfer` objects
-        REPLACE the whole nested object — send all sub-fields, not just the one you're changing.
+        are deep-merged — send just the sub-field(s) you're changing; the rest are preserved.
       tags: [Company]
       requestBody:
         content:
@@ -2606,7 +2606,7 @@ paths:
                   type: string
                 address:
                   type: object
-                  description: Company business address. Sub-fields firstLine, secondLine, city, postcode, lat, long. Replaces the whole object.
+                  description: Company business address. Sub-fields firstLine, secondLine, city, postcode, lat, long. Deep-merged — send only the fields you're changing.
                   properties:
                     firstLine: { type: string }
                     secondLine: { type: string }
@@ -2647,7 +2647,7 @@ paths:
                   description: Minutes before the appointment to send the reminder (e.g. 30).
                 bankTransfer:
                   type: object
-                  description: Bank-transfer details. Replaces the whole object.
+                  description: Bank-transfer details. Deep-merged — send only the fields you're changing.
                   properties:
                     accountNumber: { type: string }
                     routingNumber: { type: string, description: US routing / UK sort code / CA transit number. }
