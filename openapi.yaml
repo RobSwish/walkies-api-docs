@@ -884,6 +884,60 @@ components:
           type: array
           items:
             type: object
+    RecurringInvoice:
+      type: object
+      description: >-
+        An automatic (recurring) invoice schedule. The system generates an invoice for
+        the customer's activities on each run. frequency=weekly/biweekly/monthly,
+        dayOfWeek 0=Sunday..6=Saturday, timeOfDay 24h HH:mm, direction=past/future,
+        status=active/paused.
+      properties:
+        id: { type: string }
+        customerID: { type: string }
+        customerFirstName: { type: string }
+        customerLastName: { type: string }
+        frequency: { type: string, enum: [weekly, biweekly, monthly] }
+        dayOfWeek: { type: integer, description: 0=Sunday..6=Saturday }
+        timeOfDay: { type: string, description: 24-hour HH:mm }
+        direction: { type: string, enum: [past, future] }
+        timezone: { type: string }
+        status: { type: string, enum: [active, paused] }
+        dueDateOffset: { type: integer, description: Days until the generated invoice is due }
+        paymentMethod: { type: string }
+        pets: { type: array, items: { type: object } }
+        nextGenerationDate: { type: string, format: date-time, nullable: true }
+        lastGeneratedDate: { type: string, format: date-time, nullable: true }
+        createdDate: { type: string, format: date-time, nullable: true }
+    AppointmentWindow:
+      type: object
+      description: A bookable time window. startTime/endTime are 24-hour HH:mm; days are weekday numbers (0=Sunday).
+      properties:
+        id: { type: string }
+        name: { type: string }
+        startTime: { type: string, description: 24-hour HH:mm }
+        endTime: { type: string, description: 24-hour HH:mm }
+        days:
+          type: array
+          items: { type: integer }
+          description: Weekday numbers 0=Sunday..6=Saturday
+    NotificationSettings:
+      type: object
+      description: >-
+        Per-event toggles for what CUSTOMERS get notified about. All booleans (default
+        true). Keys include walkStarted, walkFinished, invoiceCreated, appointmentBooked,
+        appointmentAccepted, readyForPickup, etc.
+      additionalProperties: { type: boolean }
+    BookingSettings:
+      type: object
+      description: Customer-facing booking, availability and cancellation settings.
+      properties:
+        allowClientBooking: { type: boolean, description: Whether customers can request/book appointments }
+        allowTeamMemberSelection: { type: boolean, nullable: true, description: Whether customers can pick a team member }
+        appointmentWindows: { type: boolean, nullable: true, description: Whether bookings use appointment windows }
+        appointmentWindowsBasedOnAvailability: { type: boolean, nullable: true }
+        checkAvailability: { type: boolean, description: Availability toggle — whether the company is shown/accepting as available }
+        allowCustomerCancellation: { type: boolean, description: Whether customers can cancel }
+        cancellationDaysBeforeAppointment: { type: integer, description: Minimum days before an appointment a customer may cancel }
     TravelLog:
       type: object
       description: A recorded travel/mileage log. Read-only. Raw GPS coordinates are excluded.
@@ -2475,6 +2529,15 @@ paths:
                   type: number
                 invoicesEnabled:
                   type: boolean
+                invoiceRemindersEnabled:
+                  type: boolean
+                  description: Whether automatic invoice reminders are sent (Max-tier).
+                appointmentReminders:
+                  type: boolean
+                  description: Whether appointment reminders are sent to customers.
+                appointmentReminderDelay:
+                  type: number
+                  description: Minutes before the appointment to send the reminder (e.g. 30).
       responses:
         '200':
           description: Updated
@@ -2632,6 +2695,57 @@ paths:
               schema:
                 $ref: '#/components/schemas/Address'
   /addresses/{id}:
+    get:
+      summary: Get Address
+      tags: [Addresses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '404':
+          description: Address not found
+    patch:
+      summary: Update Address
+      tags: [Addresses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                lineOne: { type: string }
+                lineTwo: { type: string }
+                city: { type: string }
+                postcode: { type: string }
+                state: { type: string }
+                country: { type: string }
+                lat: { type: number }
+                long: { type: number }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '404':
+          description: Address not found
     delete:
       summary: Delete Address
       tags: [Addresses]
@@ -2696,6 +2810,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/CustomUpdate'
   /custom-updates/{id}:
+    get:
+      summary: Get Custom Update
+      tags: [Custom Updates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUpdate'
+        '404':
+          description: Custom update not found
+    patch:
+      summary: Update Custom Update
+      tags: [Custom Updates]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message: { type: string }
+                type: { type: string, enum: [pet, general] }
+                serviceTypes: { type: array, items: { type: string } }
+                petIDs: { type: array, items: { type: string }, description: 'Re-resolves the embedded pets' }
+                customerIDs: { type: array, items: { type: string }, description: 'Re-resolves the embedded customers' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUpdate'
+        '404':
+          description: Custom update not found
     delete:
       summary: Delete Custom Update
       tags: [Custom Updates]
@@ -2710,6 +2871,171 @@ paths:
           description: Deleted
         '404':
           description: Custom update not found
+  /recurring-invoices:
+    get:
+      summary: List Recurring Invoices
+      tags: [Recurring Invoices]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Success
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RecurringInvoice' } } } }
+    post:
+      summary: Create Recurring Invoice
+      description: >-
+        Create an automatic invoice schedule for a customer. status defaults to active;
+        the first run is computed from frequency/dayOfWeek/timeOfDay in the company
+        timezone; paymentMethod + dueDateOffset default from company settings.
+      tags: [Recurring Invoices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, frequency]
+              properties:
+                customerID: { type: string }
+                frequency: { type: string, enum: [weekly, biweekly, monthly] }
+                dayOfWeek: { type: integer, description: '0=Sunday..6=Saturday (default 1=Monday)' }
+                timeOfDay: { type: string, description: '24-hour HH:mm (default 09:00)' }
+                direction: { type: string, enum: [past, future], description: 'Bill the past or upcoming period (default past)' }
+                status: { type: string, enum: [active, paused] }
+                dueDateOffset: { type: integer }
+                paymentMethod: { type: string }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/RecurringInvoice' } } } }
+        '400': { description: Validation error }
+  /recurring-invoices/{id}:
+    get:
+      summary: Get Recurring Invoice
+      tags: [Recurring Invoices]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/RecurringInvoice' } } } }
+        '404': { description: Not found }
+    patch:
+      summary: Update Recurring Invoice
+      description: Change the schedule (frequency/dayOfWeek/timeOfDay recompute the next run), direction, status (pause/resume), paymentMethod, or dueDateOffset.
+      tags: [Recurring Invoices]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                frequency: { type: string, enum: [weekly, biweekly, monthly] }
+                dayOfWeek: { type: integer }
+                timeOfDay: { type: string }
+                direction: { type: string, enum: [past, future] }
+                status: { type: string, enum: [active, paused] }
+                dueDateOffset: { type: integer }
+                paymentMethod: { type: string }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/RecurringInvoice' } } } }
+        '404': { description: Not found }
+    delete:
+      summary: Delete Recurring Invoice
+      tags: [Recurring Invoices]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not found }
+  /appointment-windows:
+    get:
+      summary: List Appointment Windows
+      tags: [Appointment Windows]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AppointmentWindow' } } } } }
+    post:
+      summary: Create Appointment Window
+      tags: [Appointment Windows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, startTime, endTime]
+              properties:
+                name: { type: string }
+                startTime: { type: string, description: '24-hour HH:mm' }
+                endTime: { type: string, description: '24-hour HH:mm' }
+                days: { type: array, items: { type: integer }, description: 'Weekday numbers 0=Sunday..6=Saturday' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentWindow' } } } }
+        '400': { description: Validation error }
+  /appointment-windows/{id}:
+    get:
+      summary: Get Appointment Window
+      tags: [Appointment Windows]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentWindow' } } } }
+        '404': { description: Not found }
+    patch:
+      summary: Update Appointment Window
+      tags: [Appointment Windows]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                startTime: { type: string }
+                endTime: { type: string }
+                days: { type: array, items: { type: integer } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentWindow' } } } }
+        '404': { description: Not found }
+    delete:
+      summary: Delete Appointment Window
+      tags: [Appointment Windows]
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not found }
+  /settings/notifications:
+    get:
+      summary: Get Customer Notification Settings
+      tags: [Settings]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationSettings' } } } }
+    patch:
+      summary: Update Customer Notification Settings
+      description: Toggle which events customers are notified about. Send any subset of the boolean fields.
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationSettings' }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationSettings' } } } }
+        '400': { description: No valid fields }
+  /settings/booking:
+    get:
+      summary: Get Booking Settings
+      tags: [Settings]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/BookingSettings' } } } }
+    patch:
+      summary: Update Booking Settings
+      description: Booking, availability and cancellation settings. Send any subset.
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingSettings' }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/BookingSettings' } } } }
+        '400': { description: No valid fields }
   /travel-logs:
     get:
       summary: List Travel Logs
