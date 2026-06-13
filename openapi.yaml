@@ -935,9 +935,18 @@ components:
         allowTeamMemberSelection: { type: boolean, nullable: true, description: Whether customers can pick a team member }
         appointmentWindows: { type: boolean, nullable: true, description: Whether bookings use appointment windows }
         appointmentWindowsBasedOnAvailability: { type: boolean, nullable: true }
-        checkAvailability: { type: boolean, description: Availability toggle — whether the company is shown/accepting as available }
+        checkAvailability: { type: boolean, description: Whether availability is checked when customers book (so they cannot book unavailable slots) }
         allowCustomerCancellation: { type: boolean, description: Whether customers can cancel }
         cancellationDaysBeforeAppointment: { type: integer, description: Minimum days before an appointment a customer may cancel }
+    RegionSettings:
+      type: object
+      description: >-
+        Company region. Setting `country` auto-sets `currency` (the apps' country→currency map);
+        `currency` sent on its own (no `country`) is used as-is. `timezone` is independent.
+      properties:
+        country: { type: string, description: ISO 3166-1 alpha-2 country code (e.g. US, GB, FR). Setting this auto-sets currency. }
+        currency: { type: string, description: ISO 4217 currency code. Derived from country when country is set; honoured directly only when country is omitted. }
+        timezone: { type: string, description: IANA timezone name (e.g. Europe/London, America/New_York). }
     TravelLog:
       type: object
       description: A recorded travel/mileage log. Read-only. Raw GPS coordinates are excluded.
@@ -1080,8 +1089,59 @@ components:
         serviceTax:
           type: number
           nullable: true
+        depositPercentage:
+          type: number
+          nullable: true
+        dueDateOffset:
+          type: integer
+          nullable: true
         invoicesEnabled:
           type: boolean
+        sendContracts:
+          type: boolean
+        appointmentSharing:
+          type: boolean
+        invoiceRemindersEnabled:
+          type: boolean
+          description: Automatic reminders for unpaid invoices. Enabling via PATCH requires a Max subscription.
+        appointmentReminders:
+          type: boolean
+          description: Reminders sent to clients before appointments. Enabling via PATCH requires a Max subscription.
+        appointmentReminderDelay:
+          type: integer
+          nullable: true
+          description: Minutes before the appointment the reminder is sent.
+        bankTransfer:
+          type: object
+          nullable: true
+          description: Bank-transfer details. Sub-fields accountNumber and routingNumber (US routing / UK sort code / CA transit). Replaces the whole object on write.
+          properties:
+            accountNumber: { type: string }
+            routingNumber: { type: string }
+        paypalURL:
+          type: string
+          nullable: true
+          description: PayPal username only (no URL / @). Rendered as paypal.me/<username>.
+        venmoURL:
+          type: string
+          nullable: true
+          description: Venmo username only (no URL / @). Rendered as venmo.com/<username>.
+        cashAppURL:
+          type: string
+          nullable: true
+          description: Cash App cashtag including the leading $ (e.g. $jane). Rendered as cash.app/$<cashtag>.
+        zelleInformation:
+          type: string
+          nullable: true
+          description: Zelle recipient — an email or phone number.
+        chequeTitle:
+          type: string
+          nullable: true
+          description: Payee name for cheques.
+        otherService:
+          type: string
+          nullable: true
+          description: Free-text instructions for the "Other" payment method.
         subscriptionStatus:
           type: string
           nullable: true
@@ -2503,7 +2563,12 @@ paths:
                 $ref: '#/components/schemas/Company'
     patch:
       summary: Update Company Profile
-      description: Updates your company profile. Region fields (country, currency, timezone) are read-only and silently ignored.
+      description: >-
+        Updates your company profile, billing defaults and payment handles. Region fields
+        (country, currency, timezone) are read-only here and silently ignored — use
+        PATCH /settings/region for those. Enabling invoiceRemindersEnabled or appointmentReminders
+        requires a Max subscription (otherwise 403). The `address` and `bankTransfer` objects
+        REPLACE the whole nested object — send all sub-fields, not just the one you're changing.
       tags: [Company]
       requestBody:
         content:
@@ -2521,23 +2586,71 @@ paths:
                   type: string
                 color:
                   type: string
+                address:
+                  type: object
+                  description: Company business address. Sub-fields firstLine, secondLine, city, postcode, lat, long. Replaces the whole object.
+                  properties:
+                    firstLine: { type: string }
+                    secondLine: { type: string }
+                    city: { type: string }
+                    postcode: { type: string }
+                    lat: { type: number }
+                    long: { type: number }
                 preferredPaymentMethod:
                   type: string
+                  description: One of Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None.
+                preferredInvoiceType:
+                  type: string
+                  description: Default billing/invoice type — single, whenStarted, prePaid, or none.
                 customerPaysFee:
                   type: boolean
                 serviceTax:
                   type: number
+                depositPercentage:
+                  type: number
+                  description: 0–100.
+                dueDateOffset:
+                  type: integer
+                  description: Days until an invoice is due.
                 invoicesEnabled:
+                  type: boolean
+                sendContracts:
+                  type: boolean
+                appointmentSharing:
                   type: boolean
                 invoiceRemindersEnabled:
                   type: boolean
-                  description: Whether automatic invoice reminders are sent (Max-tier).
+                  description: Automatic invoice reminders. Enabling requires a Max subscription (else 403).
                 appointmentReminders:
                   type: boolean
-                  description: Whether appointment reminders are sent to customers.
+                  description: Appointment reminders to customers. Enabling requires a Max subscription (else 403).
                 appointmentReminderDelay:
                   type: number
                   description: Minutes before the appointment to send the reminder (e.g. 30).
+                bankTransfer:
+                  type: object
+                  description: Bank-transfer details. Replaces the whole object.
+                  properties:
+                    accountNumber: { type: string }
+                    routingNumber: { type: string, description: US routing / UK sort code / CA transit number. }
+                paypalURL:
+                  type: string
+                  description: PayPal username only (no URL / @).
+                venmoURL:
+                  type: string
+                  description: Venmo username only (no URL / @).
+                cashAppURL:
+                  type: string
+                  description: Cash App cashtag including leading $ (e.g. $jane).
+                zelleInformation:
+                  type: string
+                  description: Zelle email or phone.
+                chequeTitle:
+                  type: string
+                  description: Cheque payee name.
+                otherService:
+                  type: string
+                  description: Free-text instructions for the "Other" payment method.
       responses:
         '200':
           description: Updated
@@ -2547,6 +2660,12 @@ paths:
                 $ref: '#/components/schemas/Company'
         '400':
           description: No updatable fields or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Enabling invoice/appointment reminders requires a Max subscription
           content:
             application/json:
               schema:
@@ -3035,6 +3154,28 @@ paths:
             schema: { $ref: '#/components/schemas/BookingSettings' }
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/BookingSettings' } } } }
+        '400': { description: No valid fields }
+  /settings/region:
+    get:
+      summary: Get Company Region
+      description: The company's country (ISO 3166-1 alpha-2), currency (ISO 4217) and IANA timezone.
+      tags: [Settings]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/RegionSettings' } } } }
+    patch:
+      summary: Update Company Region
+      description: >-
+        Change the company's country and/or timezone. Setting `country` automatically sets the
+        matching `currency` (e.g. US→USD, GB→GBP, FR→EUR); a `currency` you pass is honoured only
+        when no `country` is provided. Region affects money display business-wide.
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegionSettings' }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/RegionSettings' } } } }
         '400': { description: No valid fields }
   /travel-logs:
     get:
