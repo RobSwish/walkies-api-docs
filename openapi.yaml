@@ -444,10 +444,24 @@ components:
               - appointment.created
               - appointment.updated
               - appointment.cancelled
+              - appointment.deleted
               - customer.created
               - customer.updated
+              - customer.deleted
+              - pet.created
+              - pet.updated
+              - pet.deleted
               - invoice.created
+              - invoice.updated
               - invoice.paid
+              - invoice.overdue
+              - invoice.deleted
+              - expense.created
+              - expense.updated
+              - expense.deleted
+              - service.created
+              - service.updated
+              - service.deleted
               - walk.started
               - walk.finished
               - taxi.started
@@ -457,10 +471,36 @@ components:
               - petsitting.readyForPickup
               - activity.feedUpdated
               - message.received
+              - contract.created
               - contract.signed
+              - contract.updated
+              - contract.deleted
               - announcement.created
               - announcement.updated
+              - announcement.deleted
+              - checklist.created
+              - checklist.updated
+              - checklist.deleted
+              - address.created
+              - address.updated
+              - address.deleted
+              - custom_update.created
+              - custom_update.updated
+              - custom_update.deleted
+              - recurring_invoice.created
+              - recurring_invoice.updated
+              - recurring_invoice.deleted
+              - appointment_window.created
+              - appointment_window.updated
+              - appointment_window.deleted
+              - travel_log.created
+              - travel_log.updated
+              - travel_log.deleted
+              - special_hours.created
+              - special_hours.updated
+              - special_hours.deleted
               - team_member.added
+              - team_member.updated
               - team_member.removed
         secret:
           type: string
@@ -4112,10 +4152,24 @@ paths:
                       - appointment.created
                       - appointment.updated
                       - appointment.cancelled
+                      - appointment.deleted
                       - customer.created
                       - customer.updated
+                      - customer.deleted
+                      - pet.created
+                      - pet.updated
+                      - pet.deleted
                       - invoice.created
+                      - invoice.updated
                       - invoice.paid
+                      - invoice.overdue
+                      - invoice.deleted
+                      - expense.created
+                      - expense.updated
+                      - expense.deleted
+                      - service.created
+                      - service.updated
+                      - service.deleted
                       - walk.started
                       - walk.finished
                       - taxi.started
@@ -4125,10 +4179,36 @@ paths:
                       - petsitting.readyForPickup
                       - activity.feedUpdated
                       - message.received
+                      - contract.created
                       - contract.signed
+                      - contract.updated
+                      - contract.deleted
                       - announcement.created
                       - announcement.updated
+                      - announcement.deleted
+                      - checklist.created
+                      - checklist.updated
+                      - checklist.deleted
+                      - address.created
+                      - address.updated
+                      - address.deleted
+                      - custom_update.created
+                      - custom_update.updated
+                      - custom_update.deleted
+                      - recurring_invoice.created
+                      - recurring_invoice.updated
+                      - recurring_invoice.deleted
+                      - appointment_window.created
+                      - appointment_window.updated
+                      - appointment_window.deleted
+                      - travel_log.created
+                      - travel_log.updated
+                      - travel_log.deleted
+                      - special_hours.created
+                      - special_hours.updated
+                      - special_hours.deleted
                       - team_member.added
+                      - team_member.updated
                       - team_member.removed
       responses:
         '201':
