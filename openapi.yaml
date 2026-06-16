@@ -2,8 +2,6 @@ openapi: 3.0.3
 info:
   title: Walkies API
   description: |
-    The Walkies API allows pet sitting businesses to integrate with external tools via Zapier or direct API access.
-
     ## Authentication
     All requests require an API key passed as a Bearer token:
     ```
@@ -1243,6 +1241,9 @@ components:
           type: string
           format: date-time
           nullable: true
+        sentByAssistant:
+          type: boolean
+          description: Present and true when this message was sent by the Walkies AI assistant. Omitted for messages sent by a human team member.
 
 paths:
   /me:
