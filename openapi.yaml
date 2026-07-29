@@ -7,7 +7,7 @@ info:
     ```
     Authorization: Bearer wk_live_...
     ```
-    Generate an API key from the Walkies web app: **Settings > Integrations > Generate key**. API keys for this REST API are web-only; the mobile apps' Integrations screen mints Zapier keys instead.
+    Generate an API key from the Walkies web app: **Settings > Integrations > Generate key**. API keys are managed on the web only; the mobile apps don't generate them.
 
     ## Rate Limits
     Requests are rate limited per API key (and per IP). Exceeding the limit returns `429` with a `Retry-After` header (seconds) — back off and retry.
