@@ -119,6 +119,8 @@ components:
         status:
           type: string
           enum: [active, archived]
+        customQuestionAnswers:
+          $ref: '#/components/schemas/CustomQuestionAnswers'
         createdDate:
           type: string
           format: date-time
@@ -156,6 +158,8 @@ components:
         status:
           type: string
           enum: [active, archived, passedAway]
+        customQuestionAnswers:
+          $ref: '#/components/schemas/CustomQuestionAnswers'
 
     Service:
       type: object
@@ -164,7 +168,7 @@ components:
           type: string
         type:
           type: string
-          enum: [walk, dropin, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
+          enum: [walk, dropin, hike, run, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
         title:
           type: string
           example: 1 Hour Walk
@@ -190,7 +194,12 @@ components:
           description: Duration in minutes
         quantity:
           type: integer
-          default: 1
+          default: 0
+          readOnly: true
+          description: >
+            Always 0 on a catalog service, and ignored if supplied on create or update.
+            Quantity is a per-line value that only applies to a service embedded in an
+            appointment or invoice.
         cadence:
           type: string
           enum: [perService, perDay, perNight]
@@ -209,7 +218,7 @@ components:
           type: string
         type:
           type: string
-          enum: [walk, checkIn, taxi, daycare, boarding, homeSitting, overnight, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
+          enum: [walk, checkIn, hike, run, taxi, daycare, boarding, homeSitting, overnight, training, grooming, meetAndGreet, other, external, busy, holiday, birthday]
         status:
           type: string
           enum: [confirmed, requested, declined]
@@ -277,6 +286,32 @@ components:
           type: array
           items:
             type: string
+        invoiceType:
+          type: string
+          enum: [none, single, whenStarted, prePaid]
+          description: How this appointment raises an invoice, if at all.
+        deposit:
+          type: boolean
+          description: >-
+            Whether the generated invoice applies the company's default deposit
+            (depositPercentage). Meaningless when invoiceType is 'none'.
+        depositAmount:
+          type: number
+          nullable: true
+          description: >-
+            A fixed deposit in minor units, set by the apps instead of the company
+            percentage. When present the invoice trigger uses it ahead of
+            depositPercentage, so a booking can carry a real deposit with `deposit`
+            false. Null when the booking has no fixed amount.
+        depositDueDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            The deposit deadline frozen onto this booking, which the generated invoice
+            inherits. Null when none was set, which means the deposit falls due with the
+            invoice itself (or on the company's depositDueDateOffset, applied when the
+            invoice is raised). Only ever set for invoiceType 'single' or 'prePaid'.
 
     Invoice:
       type: object
@@ -349,6 +384,18 @@ components:
           type: string
           format: date-time
           nullable: true
+        deposit:
+          type: number
+          nullable: true
+          description: Deposit required up front (pence/cents). Part of `amount`, not an extra charge.
+        depositDueDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the deposit falls due. Null means the deposit is due with the invoice
+            (there is no separate deadline), which is how every invoice raised before
+            deposit deadlines existed looks. Never later than `dueDate`.
         travelAmount:
           type: number
           nullable: true
@@ -462,6 +509,10 @@ components:
               - service.deleted
               - walk.started
               - walk.finished
+              - hike.started
+              - hike.finished
+              - run.started
+              - run.finished
               - taxi.started
               - taxi.finished
               - petsitting.started
@@ -479,6 +530,9 @@ components:
               - checklist.created
               - checklist.updated
               - checklist.deleted
+              - custom_question.created
+              - custom_question.updated
+              - custom_question.deleted
               - address.created
               - address.updated
               - address.deleted
@@ -641,7 +695,7 @@ components:
           type: integer
     Activity:
       type: object
-      description: A recorded walk, taxi journey, or check-in (shared WalkiesActivity model). Raw GPS and device identifiers are excluded.
+      description: A recorded walk, hike, run, taxi journey, or check-in (shared WalkiesActivity model). Raw GPS and device identifiers are excluded.
       properties:
         id:
           type: string
@@ -843,6 +897,100 @@ components:
         createdDate:
           type: string
           format: date-time
+    CreditNote:
+      type: object
+      description: >
+        Credit issued to a client. A credit note is a negative invoice, not a
+        payment: applying one reduces what the client owes without any money
+        changing hands, so it must never be counted as income. All amounts are
+        in minor units (pence/cents). `notes` is deliberately omitted — it is
+        the sitter's private field and is never returned by the API.
+      properties:
+        id:
+          type: string
+        companyID:
+          type: string
+          nullable: true
+        customerID:
+          type: string
+          nullable: true
+        reference:
+          type: string
+          description: Human-readable reference, always prefixed `CN-` so it is distinct from an invoice reference.
+          example: CN-a1b2c3d4e5
+        amount:
+          type: integer
+          description: Face value in minor units. Never changes once issued.
+          example: 3000
+        allocatedAmount:
+          type: integer
+          description: Sum of live (non-reversed) allocations.
+          example: 1000
+        remainingAmount:
+          type: integer
+          description: Still available to apply. Always 0 on a voided note.
+          example: 2000
+        status:
+          type: string
+          enum: [open, partiallyApplied, applied, void]
+        reason:
+          type: string
+          description: Client-visible reason. May be empty — a reason is optional.
+          example: Cancelled visit on 12 August
+        currency:
+          type: string
+          nullable: true
+          example: GBP
+        country:
+          type: string
+          nullable: true
+          example: GB
+        serviceTaxPercentage:
+          type: number
+          nullable: true
+        serviceTaxAmount:
+          type: integer
+          description: >
+            Tax portion INCLUDED in `amount` (VAT-inclusive), unlike invoice tax
+            which is added on top. On 20% against 5000 this is 833, not 1000.
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditNoteAllocation'
+        dateIssued:
+          type: string
+          format: date-time
+        dateCreated:
+          type: string
+          format: date-time
+        voidedAt:
+          type: string
+          format: date-time
+          nullable: true
+    CreditNoteAllocation:
+      type: object
+      description: >
+        One application of a credit note against one invoice. Reversal is soft —
+        `reversedAt` is stamped and the entry is kept — so the audit trail
+        survives a credit that was applied and then pulled back.
+      properties:
+        id:
+          type: string
+          description: Also the id of the matching row in the invoice's payments array, and the `allocationID` used to unapply.
+        invoiceID:
+          type: string
+          nullable: true
+        invoiceReference:
+          type: string
+        amount:
+          type: integer
+        dateApplied:
+          type: string
+          format: date-time
+        reversedAt:
+          type: string
+          format: date-time
+          nullable: true
     Checklist:
       type: object
       properties:
@@ -880,6 +1028,43 @@ components:
                 type: string
               lastName:
                 type: string
+    CustomQuestion:
+      type: object
+      description: >-
+        A company-defined extra profile field. A `customer` question renders on the
+        client profile editor, a `pet` question on the pet editor, and the answer is
+        stored in that record's `customQuestionAnswers` map keyed by this id.
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          example: Where is the spare key kept?
+        type:
+          type: string
+          enum: [customer, pet]
+          description: Immutable after creation — changing it would orphan every existing answer.
+        required:
+          type: boolean
+          description: >-
+            Enforced only on the CLIENT-facing surfaces (the Journal apps and the
+            self-signup link), which block the profile save until the question is
+            answered. Sitter apps show the question but never block on it. The API
+            deliberately does not enforce it either, so existing integrations keep
+            working when a question is marked required.
+    CustomQuestionAnswers:
+      type: object
+      description: >-
+        Free-text answers keyed by custom question id (from GET /custom-questions).
+        On PATCH the map is MERGED key by key: send only the answers you are
+        changing and the rest are left untouched, or send the complete set as the
+        apps do. Either way "" means unanswered, and sending "" is how an answer is
+        cleared. Maximum 100 entries, 2000 characters each. An id matching no
+        question is stored but never displayed.
+      additionalProperties:
+        type: string
+      example:
+        aB3dEfGhIjKlMnOpQrSt: Under the third plant pot
     Address:
       type: object
       properties:
@@ -1138,6 +1323,13 @@ components:
         dueDateOffset:
           type: integer
           nullable: true
+        depositDueDateOffset:
+          type: integer
+          nullable: true
+          description: >
+            Days after an invoice is RAISED that its deposit falls due. Counted from the
+            invoice creation date, unlike dueDateOffset, which a booked invoice counts
+            from the service date. Null means deposits are due with the invoice.
         invoicesEnabled:
           type: boolean
         sendContracts:
@@ -1193,6 +1385,12 @@ components:
           type: integer
           readOnly: true
         walkCount:
+          type: integer
+          readOnly: true
+        hikeCount:
+          type: integer
+          readOnly: true
+        runCount:
           type: integer
           readOnly: true
         taxiCount:
@@ -1561,7 +1759,7 @@ paths:
                   example: 1 Hour Walk
                 type:
                   type: string
-                  enum: [walk, dropin, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other]
+                  enum: [walk, dropin, hike, run, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other]
                 amount:
                   type: integer
                   description: >-
@@ -1769,6 +1967,16 @@ paths:
                     deposit (depositPercentage). Defaults to true when the appointment is
                     invoiced (invoiceType is not 'none'), false otherwise. The due date
                     always follows the company's dueDateOffset.
+                depositDueDate:
+                  type: string
+                  format: date-time
+                  description: >-
+                    Optional. Freezes a deposit deadline onto the booking, which the
+                    generated invoice inherits. Returns 400 unless invoiceType is 'single'
+                    AND the booking takes a deposit: a date stamped at booking is already
+                    stale by the time a 'whenStarted' invoice is raised, so that path always
+                    recomputes, and a booking with no deposit has nothing for the deadline
+                    to apply to. Omit to use the company's depositDueDateOffset.
                 allDay:
                   type: boolean
                   default: false
@@ -1840,6 +2048,16 @@ paths:
                   type: string
                   format: date-time
                   description: Defaults to your company's invoice terms (creation date + due-date offset days, default 7) when omitted.
+                deposit:
+                  type: number
+                  description: Deposit required up front (pence/cents). Omit or pass 0 for no deposit.
+                depositDueDate:
+                  type: string
+                  format: date-time
+                  description: >
+                    When the deposit falls due. Only written alongside a deposit, and clamped
+                    so it can never fall after dueDate. Omit to use your company's
+                    depositDueDateOffset, or to leave the deposit due with the invoice.
                 travelAmount:
                   type: number
                   description: Travel charge (pence/cents)
@@ -2067,6 +2285,98 @@ paths:
                 $ref: '#/components/schemas/Activity'
         '404':
           description: Walk not found
+  /hikes:
+    get:
+      summary: List Hikes
+      tags: [Hikes]
+      parameters:
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activity'
+  /hikes/{id}:
+    get:
+      summary: Get Hike
+      tags: [Hikes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '404':
+          description: Hike not found
+  /runs:
+    get:
+      summary: List Runs
+      tags: [Runs]
+      parameters:
+        - name: active
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Activity'
+  /runs/{id}:
+    get:
+      summary: Get Run
+      tags: [Runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '404':
+          description: Run not found
   /taxis:
     get:
       summary: List Taxis
@@ -2360,6 +2670,287 @@ paths:
           description: Deleted
         '404':
           description: Team member not found
+  /credit-notes:
+    get:
+      summary: List Credit Notes
+      description: Credit issued to your clients, newest first.
+      tags: [Credit Notes]
+      parameters:
+        - name: customerID
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by derived status.
+          schema:
+            type: string
+            enum: [open, partiallyApplied, applied, void]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreditNote'
+    post:
+      summary: Create Credit Note
+      description: >
+        Issue credit to a client. This does NOT apply it to anything — the credit
+        sits on the client until applied to an invoice, which is what lets you
+        credit a client who has no open invoice.
+      tags: [Credit Notes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, amount]
+              properties:
+                customerID:
+                  type: string
+                amount:
+                  type: integer
+                  description: Minor units. Must be greater than zero.
+                  example: 3000
+                reason:
+                  type: string
+                  description: Client-visible. Optional.
+                notes:
+                  type: string
+                  description: Private to your team. Never returned by the API.
+                dateIssued:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: Missing or invalid field
+        '404':
+          description: Client not found
+  /credit-notes/{id}:
+    get:
+      summary: Get Credit Note
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '404':
+          description: Credit note not found
+    patch:
+      summary: Update Credit Note
+      description: >
+        Edits the WORDING only. `amount` and `reference` are immutable — the
+        amount is drawn down by allocations already on invoices, so changing it
+        would silently invalidate them. Sending either is rejected rather than
+        ignored.
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Client-visible. Send an empty string to clear it.
+                notes:
+                  type: string
+                  description: Private to your team. Never returned by the API.
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: An immutable field was sent, or nothing to update
+        '404':
+          description: Credit note not found
+    delete:
+      summary: Delete Credit Note
+      description: >
+        Permanently erases the note. This is NOT how you cancel credit — use
+        void for that, which keeps the record of what was offered. Refused
+        while any credit is still applied to an invoice. Requires header
+        X-Confirm-Delete:true.
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Confirm-Delete
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: ['true']
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Credit note not found
+        '409':
+          description: Credit is still applied to one or more invoices
+  /credit-notes/{id}/apply:
+    post:
+      summary: Apply Credit Note to Invoice
+      description: >
+        Puts some or all of the credit against an invoice, reducing what is owed.
+        Over-allocation is REFUSED rather than clamped, and the error names the
+        amount that was actually available.
+
+
+        SEND AN `Idempotency-Key` HEADER. Applying the same credit twice is a
+        legitimate operation (two separate part-payments), so the server cannot
+        tell a deliberate second application from a network retry — and an
+        unkeyed retry spends the client's credit twice with no error. This is the
+        one endpoint where the key is effectively required rather than advisory.
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoiceID, amount]
+              properties:
+                invoiceID:
+                  type: string
+                amount:
+                  type: integer
+                  description: Minor units to apply.
+      responses:
+        '200':
+          description: Applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: Missing or invalid field
+        '404':
+          description: Credit note or invoice not found
+        '409':
+          description: >
+            Refused. The note is voided, belongs to a different client, is in a
+            different currency, the invoice has nothing left to pay, the amount
+            exceeds what is available, or the client is paying the invoice right now.
+  /credit-notes/{id}/unapply:
+    post:
+      summary: Remove Applied Credit
+      description: >
+        Reverses one allocation, returning the credit to the client. Refused on an
+        invoice that has already been paid with real money.
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allocationID]
+              properties:
+                allocationID:
+                  type: string
+                  description: The allocation's `id`, from the note's allocations array.
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: Missing field
+        '404':
+          description: Credit note or allocation not found
+        '409':
+          description: Already removed, the invoice was paid with real money, or the client is paying it right now
+  /credit-notes/{id}/void:
+    post:
+      summary: Void Credit Note
+      description: >
+        Withdraws whatever credit is LEFT on the note. The note stays on the
+        client's record marked void, and any credit already applied to invoices
+        stays applied — voiding writes only the credit note, never an invoice.
+        A partly used note can be voided; the unused remainder is what goes.
+      tags: [Credit Notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Voided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditNote'
+        '404':
+          description: Credit note not found
+        '409':
+          description: Already voided
   /contracts:
     get:
       summary: List Contracts
@@ -2609,6 +3200,139 @@ paths:
           description: Deleted
         '404':
           description: Checklist not found
+  /custom-questions:
+    get:
+      summary: List Custom Questions
+      tags: [Custom questions]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CustomQuestion'
+    post:
+      summary: Create Custom Question
+      description: >-
+        The id is always a Firestore auto-id, never derived from the title: it
+        doubles as a key in every answer map, and a title-derived slug containing
+        "." or "/" would break writes on every client. A company may have at most
+        50 questions of each type, matching the maximum size of an answer map.
+      tags: [Custom questions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, type]
+              properties:
+                title:
+                  type: string
+                  maxLength: 500
+                  description: >-
+                    Trimmed before storing. A blank or whitespace-only title is
+                    rejected, because every client drops a question with no text
+                    rather than render an unlabelled field.
+                type:
+                  type: string
+                  enum: [customer, pet]
+                  description: Cannot be changed after creation.
+                required:
+                  type: boolean
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomQuestion'
+        '400':
+          description: >-
+            Missing or blank title, invalid type, or the company already has 50
+            questions of this type.
+  /custom-questions/{id}:
+    get:
+      summary: Get Custom Question
+      tags: [Custom questions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomQuestion'
+        '404':
+          description: Custom question not found
+    patch:
+      summary: Update Custom Question
+      description: >-
+        `type` is immutable: sending a different value returns 400, because
+        changing it would orphan every answer already collected. A title sent here
+        is trimmed, and blanking it is rejected.
+      tags: [Custom questions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                required:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomQuestion'
+        '400':
+          description: Attempted to change the immutable type
+        '404':
+          description: Custom question not found
+    delete:
+      summary: Delete Custom Question
+      description: >-
+        Existing answers are left on the customer/pet records. They stop being
+        shown once the definition is gone, and recreating a question with the same
+        id brings them back.
+      tags: [Custom questions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Custom question not found
   /company:
     get:
       summary: Get Company Profile
@@ -2671,6 +3395,13 @@ paths:
                 dueDateOffset:
                   type: integer
                   description: Days until an invoice is due.
+                depositDueDateOffset:
+                  type: integer
+                  description: >-
+                    Days after an invoice is RAISED that its deposit falls due, counted from
+                    the invoice creation date (unlike dueDateOffset, which a booked invoice
+                    counts from the service date). Leave unset to make deposits due with the
+                    invoice.
                 invoicesEnabled:
                   type: boolean
                 sendContracts:
@@ -3822,6 +4553,20 @@ paths:
                     Optional. The team member to record as having made this update, validated against
                     your team (an unknown id returns 400). When set, it is stored on the appointment as
                     the last updater. When omitted, no updater is recorded for this change.
+                depositDueDate:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: >-
+                    Optional. Sets the deposit deadline frozen onto this booking, which the
+                    generated invoice inherits. Send null (or an empty string) to clear it, which
+                    returns the deposit to falling due with the invoice. Setting a date (rather than clearing one)
+                    returns 400 unless the appointment's stored invoiceType is 'single' or
+                    'prePaid' AND it actually takes a deposit: a 'whenStarted' invoice computes
+                    its own dates when the visit starts, and a booking with no deposit has
+                    nothing for the deadline to apply to. invoiceType cannot be changed by this
+                    endpoint, so the check is always against the stored value. Stored at the
+                    start of the day in the company's timezone.
                 confirmOverlap:
                   type: boolean
                   description: >-
@@ -3875,6 +4620,18 @@ paths:
                 dueDate:
                   type: string
                   format: date-time
+                deposit:
+                  type: number
+                  description: >
+                    Deposit required up front (pence/cents). Passing 0 removes the deposit,
+                    and removes depositDueDate with it.
+                depositDueDate:
+                  type: string
+                  format: date-time
+                  description: >
+                    When the deposit falls due, clamped so it can never fall after dueDate.
+                    Moving dueDate EARLIER clamps an existing deposit deadline down with it;
+                    moving it later leaves the deposit deadline where it was.
       responses:
         '200':
           description: Updated
@@ -3942,6 +4699,15 @@ paths:
         unpaid (paid invoices or invoices that already have payments are rejected so
         payment history is never lost). The merged invoice's due date is the earliest of
         the originals'.
+
+
+        Deposit deadlines merge the same way: the merged invoice takes the EARLIEST
+        depositDueDate among the originals, clamped to the merged due date. Note this
+        pulls the WHOLE summed deposit forward to that date, so merging an invoice whose
+        deposit was due soon with one whose deposit had no deadline brings the combined
+        deposit forward. Originals with no depositDueDate of their own contribute none
+        (their deposit was due with the invoice), so merging only such invoices leaves
+        the result undated.
       tags: [Invoices]
       requestBody:
         required: true
@@ -4173,6 +4939,10 @@ paths:
                       - service.deleted
                       - walk.started
                       - walk.finished
+                      - hike.started
+                      - hike.finished
+                      - run.started
+                      - run.finished
                       - taxi.started
                       - taxi.finished
                       - petsitting.started
@@ -4190,6 +4960,9 @@ paths:
                       - checklist.created
                       - checklist.updated
                       - checklist.deleted
+                      - custom_question.created
+                      - custom_question.updated
+                      - custom_question.deleted
                       - address.created
                       - address.updated
                       - address.deleted
@@ -4366,7 +5139,7 @@ paths:
         - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
         - { name: status, in: query, description: Which invoices to include, schema: { type: string, enum: [paid, unpaid, all], default: paid } }
-        - { name: dateField, in: query, description: 'Which date field the period filters on. Defaults to datePaid for status=paid, otherwise dateCreated. datePaid is only valid with status=paid (unpaid invoices have no datePaid) — other combinations return 400.', schema: { type: string, enum: [dateCreated, dueDate, datePaid] } }
+        - { name: dateField, in: query, description: 'Which date field the period filters on. Defaults to datePaid for status=paid, otherwise dateCreated. datePaid is only valid with status=paid (unpaid invoices have no datePaid) — other combinations return 400. depositDueDate reports only on invoices that carry a deposit deadline: invoices without one are absent from the field entirely and are therefore excluded, so this total is NOT a subset of the same period measured by dateCreated.', schema: { type: string, enum: [dateCreated, dueDate, datePaid, depositDueDate] } }
       responses:
         '200':
           description: Invoices summary report
