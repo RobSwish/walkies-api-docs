@@ -39,7 +39,7 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: API key generated from the Walkies iOS app
+      description: API key generated from the Walkies web app under Settings > Integrations.
 
   schemas:
     ReportPeriod:
@@ -59,6 +59,9 @@ components:
         timezone:
           type: string
           example: Europe/London
+          description: >-
+            Frozen company scheduling timezone for this appointment. All
+            appointment wall-clock dates, recurrence and pricing use this zone.
     Customer:
       type: object
       properties:
@@ -181,7 +184,17 @@ components:
         additionalPetAmount:
           type: number
           nullable: true
-          description: Extra charge per additional pet (pence/cents)
+          description: Extra charge per additional pet (pence/cents). Generic fallback for pet types with no additionalPetAmounts entry.
+        additionalPetAmounts:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: integer
+          description: >-
+            Per-species extra charge per additional pet, in pence/cents, keyed by pet type
+            (dog, cat, pig, bird, fish, small pet, reptile, horse, other). A key present with
+            value 0 makes that species free as an additional pet; a pet type with no key falls
+            back to additionalPetAmount.
         currency:
           type: string
           example: GBP
@@ -210,6 +223,185 @@ components:
         position:
           type: integer
           default: 0
+
+    Surcharge:
+      type: object
+      description: >-
+        A catalog surcharge: a named fixed amount or percentage automatically
+        applied to bookings that match its window (date range, optional annual
+        repeat, days of week, time of day) and scope (services, pet types,
+        specific pets, specific clients). Applied surcharges are FROZEN
+        snapshots on the appointment and invoice, so later edits or deletes
+        here never change documents already issued.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          maxLength: 100
+          example: Christmas
+          description: Rendered verbatim to the customer on invoices and receipts.
+        valueType:
+          type: string
+          enum: [fixed, percentage]
+        amount:
+          type: number
+          nullable: true
+          minimum: 1
+          description: Fixed amount in pence/cents. Set when valueType is fixed.
+          example: 500
+        percentage:
+          type: number
+          nullable: true
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 100
+          description: Percentage of the matched services' line totals (15 = 15%). Set when valueType is percentage.
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+        repeatsAnnually:
+          type: boolean
+          default: false
+          description: >-
+            When true the window's year is ignored (24 Dec to 2 Jan repeats
+            every year, wrapping New Year). Both startDate and endDate are
+            required for an annual window.
+        daysOfWeek:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+          description: 0 = Sunday .. 6 = Saturday. Empty means any day.
+        startMinuteOfDay:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 1439
+          description: >-
+            Company-local minute of day the window opens (540 = 09:00). Tested
+            against the appointment's START time; all-day appointments never
+            match a timed surcharge. End before start wraps midnight.
+        endMinuteOfDay:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 1439
+          description: >-
+            Company-local minute of day the window closes. Both time bounds
+            must be present or absent, and they cannot be equal.
+        serviceIDs:
+          type: array
+          items:
+            type: string
+          description: Catalog service ids the surcharge applies to. Empty means all services.
+        petTypes:
+          type: array
+          items:
+            type: string
+            enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+          description: Pet types the surcharge applies to. Empty means any pet.
+        petIDs:
+          type: array
+          items:
+            type: string
+          description: Specific pet ids. Empty means any pet. Combined with petTypes as an intersection.
+        customerIDs:
+          type: array
+          items:
+            type: string
+          description: >-
+            Specific client ids. Empty means any client. Tested against each
+            PET'S OWN owner, not the appointment's customer, so a booking
+            shared by two households is surcharged only for the scoped
+            client's pets. Combined with petTypes and petIDs as an
+            intersection.
+        hidden:
+          type: boolean
+          default: false
+          description: Paused surcharges never apply automatically. A sitter may still choose one explicitly from the manual Add surcharge screen when its scope matches.
+        position:
+          type: integer
+          default: 0
+          minimum: 0
+        currency:
+          type: string
+          example: GBP
+          readOnly: true
+        country:
+          type: string
+          example: GB
+          readOnly: true
+        timezone:
+          type: string
+          readOnly: true
+          description: Authoritative IANA company timezone stamped by the server.
+          example: Europe/London
+        dateCreated:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+
+    AppliedSurcharge:
+      type: object
+      readOnly: true
+      description: >-
+        A surcharge snapshot frozen onto an invoice or appointment at
+        resolution time. The title and rate never change after stamping, and
+        the document's surchargeAmount is the arithmetic authority. API reads
+        add a signed "Surcharge adjustment" compatibility row when legacy rows
+        drift, so the visible entries always sum exactly to that scalar.
+        Read-only through the API; client-supplied surcharge fields on writes
+        are ignored.
+      properties:
+        surchargeID:
+          type: string
+          description: The catalog surcharge this entry resolved from.
+        title:
+          type: string
+        valueType:
+          type: string
+          enum: [fixed, percentage]
+        percentage:
+          type: number
+          nullable: true
+        baseAmount:
+          type: number
+          nullable: true
+          description: The matched line total (pence/cents) a percentage was taken on.
+        units:
+          type: integer
+          description: Covered units charged (nights, matching pets, or their product). 1 for a plain in-window appointment.
+        amount:
+          type: number
+          description: >-
+            Resolved amount in pence/cents. Normally positive; a synthetic
+            Surcharge adjustment row may be negative to reconcile legacy data
+            to the authoritative surchargeAmount scalar.
+        overridden:
+          type: boolean
+          description: A sitter hand-edited this amount; it is never recomputed.
+        manual:
+          type: boolean
+          description: Added by hand from the catalog rather than auto-matched.
+        customerAmounts:
+          type: object
+          additionalProperties:
+            type: integer
+          description: >-
+            Optional frozen allocation by customer id. Fixed pet/client-scoped
+            rules allocate by matching owner; percentages are priced separately
+            from each household's pet-filtered service line. Legacy snapshots
+            omit this map and are billed to the appointment's primary customer
+            once.
 
     Appointment:
       type: object
@@ -312,6 +504,26 @@ components:
             inherits. Null when none was set, which means the deposit falls due with the
             invoice itself (or on the company's depositDueDateOffset, applied when the
             invoice is raised). Only ever set for invoiceType 'single' or 'prePaid'.
+        surcharges:
+          type: array
+          nullable: true
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/AppliedSurcharge'
+        surchargeAmount:
+          type: number
+          nullable: true
+          readOnly: true
+          description: Sum of the applied surcharge entries' amounts, in pence/cents. Server-maintained.
+        excludedSurchargeIDs:
+          type: array
+          readOnly: true
+          items:
+            type: string
+          description: >-
+            Canonical catalog surcharge ids that staff excluded from automatic
+            pricing for this appointment. Manual, overridden and legacy keyless
+            frozen rows are unaffected. API appointment writes cannot set this field.
 
     Invoice:
       type: object
@@ -405,12 +617,32 @@ components:
         tipAmount:
           type: number
           nullable: true
+        surcharges:
+          type: array
+          nullable: true
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/AppliedSurcharge'
+        surchargeAmount:
+          type: number
+          nullable: true
+          readOnly: true
+          description: >-
+            Sum of the applied surcharge entries' amounts, in pence/cents.
+            Server-maintained; client-supplied surcharge fields on writes are
+            ignored.
         serviceTaxPercentage:
           type: number
           nullable: true
         serviceTaxAmount:
           type: number
           nullable: true
+        coveredDates:
+          type: array
+          items:
+            type: string
+            format: date-time
+          description: Service dates used to evaluate date/day surcharge rules.
         createdDate:
           type: string
           format: date-time
@@ -505,6 +737,9 @@ components:
               - expense.updated
               - expense.deleted
               - service.created
+              - surcharge.created
+              - surcharge.updated
+              - surcharge.deleted
               - service.updated
               - service.deleted
               - walk.started
@@ -1126,7 +1361,7 @@ components:
         customerLastName: { type: string }
         frequency: { type: string, enum: [weekly, biweekly, monthly] }
         dayOfWeek: { type: integer, description: 0=Sunday..6=Saturday }
-        timeOfDay: { type: string, description: 24-hour HH:mm }
+        timeOfDay: { type: string, description: "24-hour HH:mm" }
         direction: { type: string, enum: [past, future] }
         timezone: { type: string }
         status: { type: string, enum: [active, paused] }
@@ -1142,8 +1377,8 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
-        startTime: { type: string, description: 24-hour HH:mm }
-        endTime: { type: string, description: 24-hour HH:mm }
+        startTime: { type: string, description: "24-hour HH:mm" }
+        endTime: { type: string, description: "24-hour HH:mm" }
         days:
           type: array
           items: { type: integer }
@@ -1170,7 +1405,9 @@ components:
       type: object
       description: >-
         Company region. Setting `country` auto-sets `currency` (the apps' country→currency map);
-        `currency` sent on its own (no `country`) is used as-is. `timezone` is independent.
+        `currency` sent on its own (no `country`) is used as-is. `timezone` is the authoritative
+        booking calendar and cannot be changed once future appointments, repeat series,
+        weekly/special hours, appointment windows, surcharge rules, or recurring invoices exist.
       properties:
         country: { type: string, description: ISO 3166-1 alpha-2 country code (e.g. US, GB, FR). Setting this auto-sets currency. }
         currency: { type: string, description: ISO 4217 currency code. Derived from country when country is set; honoured directly only when country is omitted. }
@@ -1778,6 +2015,16 @@ paths:
                 additionalPetAmount:
                   type: integer
                   description: Extra charge per additional pet, in MINOR UNITS (pence/cents) — × 100, e.g. £5 = 500.
+                additionalPetAmounts:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                    minimum: 0
+                  description: >-
+                    Per-species extra charge per additional pet, in MINOR UNITS, keyed by pet type
+                    (dog, cat, pig, bird, fish, small pet, reptile, horse, other). Values must be
+                    non-negative integers; 0 makes that species free as an additional pet. A pet
+                    type with no key falls back to additionalPetAmount.
       responses:
         '201':
           description: Created
@@ -1816,6 +2063,20 @@ paths:
                   type: string
                 duration:
                   type: integer
+                additionalPetAmount:
+                  type: integer
+                  description: Extra charge per additional pet, in MINOR UNITS (pence/cents).
+                additionalPetAmounts:
+                  type: object
+                  nullable: true
+                  additionalProperties:
+                    type: integer
+                    minimum: 0
+                  description: >-
+                    Per-species extra charge per additional pet, in MINOR UNITS, keyed by pet type
+                    (dog, cat, pig, bird, fish, small pet, reptile, horse, other). The map replaces
+                    the stored one wholesale (omitted species are removed). Send null to clear every
+                    per-species rate.
                 hidden:
                   type: boolean
       responses:
@@ -1861,6 +2122,279 @@ paths:
         '404':
           description: Service not found
 
+  /surcharges:
+    get:
+      summary: List Surcharges
+      description: Returns the company's surcharge catalog.
+      tags: [Surcharges]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Maximum rules to return in this page.
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Document id returned in X-Next-Cursor by the previous page.
+      responses:
+        '200':
+          description: Success
+          headers:
+            X-Next-Cursor:
+              description: Pass this value as cursor to read the next page. Omitted when no further page is indicated.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Surcharge'
+    post:
+      summary: Create Surcharge
+      description: >-
+        Creates a catalog surcharge. It auto-applies to matching NEW bookings
+        from creation onward; existing appointments and invoices are never
+        retro-surcharged.
+      tags: [Surcharges]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, valueType]
+              properties:
+                title:
+                  type: string
+                  maxLength: 100
+                  example: Christmas
+                valueType:
+                  type: string
+                  enum: [fixed, percentage]
+                amount:
+                  type: integer
+                  minimum: 1
+                  description: >-
+                    Required for valueType fixed. MINOR UNITS (pence/cents), NOT
+                    major units: £5.00 = 500.
+                  example: 500
+                percentage:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 100
+                  description: Required for valueType percentage. Must be above 0 and no more than 100; 15 = 15% of the matched services' line totals.
+                startDate:
+                  type: string
+                  format: date
+                  description: Inclusive company-local calendar date. Offset-bearing date-times are accepted for compatibility and normalised to the containing company day.
+                endDate:
+                  type: string
+                  format: date
+                  description: Inclusive company-local calendar date. Offset-bearing date-times are accepted for compatibility and normalised to the containing company day.
+                repeatsAnnually:
+                  type: boolean
+                  default: false
+                  description: Both startDate and endDate are required when true.
+                daysOfWeek:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 6
+                  description: 0 = Sunday .. 6 = Saturday. Omit or empty for any day.
+                startMinuteOfDay:
+                  type: integer
+                  minimum: 0
+                  maximum: 1439
+                  description: >-
+                    Company-local minute of day (540 = 09:00). Tests the
+                    appointment's START time; wraps midnight when end < start.
+                    Both time bounds must be supplied and cannot be equal.
+                endMinuteOfDay:
+                  type: integer
+                  minimum: 0
+                  maximum: 1439
+                  description: Must be supplied with startMinuteOfDay and cannot equal it.
+                serviceIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Omit or empty for all services.
+                petTypes:
+                  type: array
+                  items:
+                    type: string
+                    enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+                  description: Omit or empty for any pet. Combined with petIDs as an intersection.
+                petIDs:
+                  type: array
+                  items:
+                    type: string
+                customerIDs:
+                  type: array
+                  items:
+                    type: string
+                  description: Omit or empty for any client. Tested against each pet's own owner, not the appointment's customer, so a booking shared by two households is surcharged only for the scoped client's pets.
+                hidden:
+                  type: boolean
+                  default: false
+                position:
+                  type: integer
+                  default: 0
+                  minimum: 0
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Surcharge'
+
+  /surcharges/{id}:
+    get:
+      summary: Get Surcharge
+      tags: [Surcharges]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Surcharge'
+        '404':
+          description: Surcharge not found
+    patch:
+      summary: Update Surcharge
+      description: >-
+        Updates the catalog entry only. Surcharges already applied to
+        appointments or invoices are frozen snapshots and never change.
+        Explicit null clears an optional window field (startDate, endDate,
+        startMinuteOfDay, endMinuteOfDay). Time bounds must be set or cleared
+        together. An annual date bound cannot be cleared unless
+        repeatsAnnually is also disabled (or both annual bounds remain set).
+      tags: [Surcharges]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 100
+                valueType:
+                  type: string
+                  enum: [fixed, percentage]
+                amount:
+                  type: integer
+                  minimum: 1
+                  description: Positive MINOR UNITS (pence/cents).
+                percentage:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 100
+                  description: Must be above 0 and no more than 100.
+                startDate:
+                  type: string
+                  format: date
+                  nullable: true
+                  description: Inclusive company-local calendar date; null clears it.
+                endDate:
+                  type: string
+                  format: date
+                  nullable: true
+                  description: Inclusive company-local calendar date; null clears it.
+                repeatsAnnually:
+                  type: boolean
+                daysOfWeek:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 6
+                startMinuteOfDay:
+                  type: integer
+                  nullable: true
+                  minimum: 0
+                  maximum: 1439
+                  description: Set or clear together with endMinuteOfDay; the two values cannot be equal.
+                endMinuteOfDay:
+                  type: integer
+                  nullable: true
+                  minimum: 0
+                  maximum: 1439
+                  description: Set or clear together with startMinuteOfDay; the two values cannot be equal.
+                serviceIDs:
+                  type: array
+                  items:
+                    type: string
+                petTypes:
+                  type: array
+                  items:
+                    type: string
+                    enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+                petIDs:
+                  type: array
+                  items:
+                    type: string
+                customerIDs:
+                  type: array
+                  items:
+                    type: string
+                hidden:
+                  type: boolean
+                position:
+                  type: integer
+                  minimum: 0
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Surcharge'
+        '404':
+          description: Surcharge not found
+    delete:
+      summary: Delete Surcharge
+      description: >-
+        Permanently deletes the catalog entry (unlike the soft-hide on
+        services). Applied surcharges are frozen copies, so issued invoices
+        keep rendering their snapshots; deletion only stops future
+        auto-apply and removes it from pickers.
+      tags: [Surcharges]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Surcharge not found
+
   /appointments:
     get:
       summary: List Appointments
@@ -1887,6 +2421,12 @@ paths:
                   $ref: '#/components/schemas/Appointment'
     post:
       summary: Create Appointment
+      description: >-
+        Creates an appointment in the company's configured IANA timezone.
+        Offsetless date-times are interpreted as company-local wall times;
+        offset-bearing RFC3339 values identify an instant which is displayed in
+        the company timezone. Booking is refused when the company has no valid
+        timezone. A caller cannot override the appointment timezone.
       tags: [Appointments]
       requestBody:
         required: true
@@ -1905,7 +2445,10 @@ paths:
                   description: When omitted, defaults to startDate plus the primary service's duration (minutes); falls back to startDate if the service has no duration.
                 timezone:
                   type: string
-                  default: UTC
+                  readOnly: true
+                  description: >-
+                    Ignored on input. The server stamps the company's configured
+                    IANA timezone.
                 status:
                   type: string
                   enum: [confirmed, requested]
@@ -2017,8 +2560,18 @@ paths:
       summary: Create Invoice
       description: |
         Creates an invoice for a customer. Services must reference existing services from your account (use GET /services to list them).
-        The amount is auto-calculated from selected services unless overridden.
         Customer pets are automatically included.
+
+        This route has two explicit pricing contracts. Existing integrations
+        remain on `legacy-total-v1` when `pricingProtocol` is omitted: `amount`
+        is the already-composed final invoice total, and optional tax, travel
+        and discount fields are stored without changing that total. Automatic
+        surcharges are not applied on the legacy protocol.
+
+        Set `pricingProtocol` to `service-subtotal-v2` to use automatic pricing.
+        In v2, `amount` overrides the selected services' subtotal; automatic
+        surcharges and tax are then resolved and travel is added and discount
+        subtracted. No request shape is used to infer v2.
       tags: [Invoices]
       requestBody:
         required: true
@@ -2028,6 +2581,18 @@ paths:
               type: object
               required: [customerID]
               properties:
+                pricingProtocol:
+                  type: string
+                  enum: [legacy-total-v1, service-subtotal-v2]
+                  default: legacy-total-v1
+                  description: >-
+                    Explicit amount/pricing contract. Omit (or use
+                    legacy-total-v1) to keep amount as the final total exactly
+                    as in the original API. Use service-subtotal-v2 to treat
+                    amount as a service-subtotal override and automatically
+                    compose surcharge, tax, travel and discount. Unknown
+                    values are rejected; the server never guesses from other
+                    fields.
                 customerID:
                   type: string
                 serviceIDs:
@@ -2037,7 +2602,25 @@ paths:
                   description: IDs of services from GET /services
                 amount:
                   type: number
-                  description: Override auto-calculated amount (pence/cents)
+                  description: >-
+                    Amount in pence/cents. Under the default
+                    legacy-total-v1 protocol this is the final invoice total.
+                    Under service-subtotal-v2 it overrides the selected
+                    services' subtotal before surcharge, tax, travel and
+                    discount. When omitted, both protocols start from the
+                    selected services' calculated amount.
+                coveredDates:
+                  type: array
+                  maxItems: 366
+                  items:
+                    type: string
+                    format: date-time
+                  description: >-
+                    service-subtotal-v2 only. Dates the services cover,
+                    evaluated in the company timezone. Supply these for
+                    calendar/day-of-week surcharge rules. When omitted only
+                    rules without date, weekday or time predicates auto-apply.
+                    Ignored under legacy-total-v1.
                 paymentMethod:
                   type: string
                   enum: [Payment link, Bank transfer, PayPal, Venmo, Cash, Cheque, Zelle, Cash App, Other, None]
@@ -2060,14 +2643,32 @@ paths:
                     depositDueDateOffset, or to leave the deposit due with the invoice.
                 travelAmount:
                   type: number
-                  description: Travel charge (pence/cents)
+                  description: >-
+                    Travel charge (pence/cents). Added to amount by
+                    service-subtotal-v2; descriptive only under
+                    legacy-total-v1 because amount is already final.
                 discountAmount:
                   type: number
-                  description: Discount (pence/cents)
+                  description: >-
+                    Discount (pence/cents). Subtracted from amount by
+                    service-subtotal-v2; descriptive only under
+                    legacy-total-v1 because amount is already final.
                 serviceTaxPercentage:
                   type: number
+                  description: >-
+                    In service-subtotal-v2, the tax percentage applied to the
+                    service subtotal plus automatic surcharge; defaults to the
+                    company setting when omitted. In legacy-total-v1 it is
+                    stored only and does not change amount.
                 serviceTaxAmount:
                   type: number
+                  description: >-
+                    Tax in minor units. In service-subtotal-v2, when
+                    serviceTaxPercentage is supplied (or configured by the
+                    company), this must equal that percentage of the service
+                    subtotal plus automatic surcharge; an inconsistent
+                    override is rejected. In legacy-total-v1 it is stored only
+                    and does not change amount.
       responses:
         '201':
           description: Created
@@ -3960,7 +4561,10 @@ paths:
       description: >-
         Change the company's country and/or timezone. Setting `country` automatically sets the
         matching `currency` (e.g. US→USD, GB→GBP, FR→EUR); a `currency` you pass is honoured only
-        when no `country` is provided. Region affects money display business-wide.
+        when no `country` is provided. Region affects money display business-wide. The timezone
+        defines every booking, availability window and recurring appointment in the company
+        calendar, so changing an established zone is refused while future schedule or calendar
+        configuration exists; those records require an explicit migration first.
       tags: [Settings]
       requestBody:
         required: true
@@ -3970,6 +4574,7 @@ paths:
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/RegionSettings' } } } }
         '400': { description: No valid fields }
+        '409': { description: Timezone change requires future-schedule migration }
   /travel-logs:
     get:
       summary: List Travel Logs
@@ -4483,7 +5088,13 @@ paths:
         Updates schedule/status fields, reassigns team members, and changes the service or add-ons.
         Changing the service to one with a different cadence (perService/perDay/perNight) affects how
         billing quantity is derived; when that happens the response includes a `warning` and the dates
-        are left unchanged (pass startDate/endDate to adjust them).
+        are left unchanged (pass startDate/endDate to adjust them). Offsetless
+        schedule values are company-local; the company timezone is required and
+        cannot be overridden by the caller. A legacy appointment stamped with a
+        different timezone must be explicitly migrated by supplying both
+        startDate and endDate before its schedule is changed. Notes, status and
+        request acceptance preserve its stored instant and timezone metadata;
+        responses and business rules project that instant into company time.
       tags: [Appointments]
       parameters:
         - name: id
@@ -4518,6 +5129,8 @@ paths:
                   format: date-time
                 timezone:
                   type: string
+                  readOnly: true
+                  description: Ignored on input; schedule edits retain the company timezone.
                 allDay:
                   type: boolean
                 notes:
@@ -4583,6 +5196,8 @@ paths:
                 $ref: '#/components/schemas/Appointment'
         '404':
           description: Appointment not found
+        '409':
+          description: Legacy appointment requires explicit company-timezone migration
     delete:
       summary: Delete Appointment
       tags: [Appointments]
@@ -4935,6 +5550,9 @@ paths:
                       - expense.updated
                       - expense.deleted
                       - service.created
+                      - surcharge.created
+                      - surcharge.updated
+                      - surcharge.deleted
                       - service.updated
                       - service.deleted
                       - walk.started
@@ -5353,6 +5971,37 @@ paths:
       responses:
         '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, sentTo: { type: string }, filename: { type: string }, truncated: { type: boolean } } } } } }
         '400': { description: Unknown report type, no recipient email, or invalid range }
+  /exports/{type}:
+    post:
+      summary: Export Data (email CSV)
+      description: >-
+        Builds a CSV of the company's own RECORDS and EMAILS it as an attachment. This is a flat,
+        one-row-per-record table — distinct from /reports/{type}/export, which sends a summary
+        report with totals. `type` is one of clients, pets, appointments, activities, invoices,
+        expenses, team, services, surcharges. appointments/activities/invoices/expenses accept a period or a
+        custom startDate/endDate (default thisMonth); clients/pets/team/services/surcharges always export
+        everything on file and IGNORE any period. Capped at 5000 rows (newest first for the dated
+        types) — `truncated` reports when the cap was hit. Recipient is `email` or the team
+        member's on-file email (`teamMemberID`).
+      tags: [Reports]
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string, enum: [clients, pets, appointments, activities, invoices, expenses, team, services, surcharges] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], description: Dated types only (appointments, activities, invoices, expenses). }
+                startDate: { type: string }
+                endDate: { type: string }
+                email: { type: string, description: Send to this address (overrides the on-file lookup). }
+                teamMemberID: { type: string, description: Resolve the recipient from this team member's on-file email. }
+                message: { type: string, description: Optional covering note placed above the "attached" line in the email body. }
+                unit: { type: string, enum: [miles, km], description: activities only - the distance column unit. }
+      responses:
+        '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, sentTo: { type: string }, filename: { type: string }, rowCount: { type: integer }, truncated: { type: boolean } } } } } }
+        '400': { description: Unknown export type, nothing to export, no recipient email, or invalid range }
   /reports/travel-logs:
     get:
       summary: Travel logs (mileage) report
