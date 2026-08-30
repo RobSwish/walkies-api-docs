@@ -2560,7 +2560,11 @@ paths:
       summary: Create Invoice
       description: |
         Creates an invoice for a customer. Services must reference existing services from your account (use GET /services to list them).
-        Customer pets are automatically included.
+        Customer pets are automatically included. Under
+        `service-subtotal-v2`, only active pets (including legacy pets with no
+        status) are attached to service lines and considered by pet-scoped
+        automatic pricing. `legacy-total-v1` keeps its historical all-pet
+        projection unchanged.
 
         This route has two explicit pricing contracts. Existing integrations
         remain on `legacy-total-v1` when `pricingProtocol` is omitted: `amount`
