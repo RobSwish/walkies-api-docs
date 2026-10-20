@@ -9,21 +9,30 @@ info:
     ```
     Generate an API key from the Walkies web app: **Settings > Integrations > Generate key**. API keys are managed on the web only; the mobile apps don't generate them.
 
+    ## Permissions
+    A key acts as the Admin or Sub Admin who created it, with the same permissions they have in the Walkies apps. A key stops working if that person is deactivated, removed, or no longer an Admin or Sub Admin, so create keys from an account that will stay in place. A key created by a Sub Admin cannot add, remove or promote an Admin, or change an Admin's details other than pay rates and colour. Nobody can change their own role or active status. A request the creator's role does not allow returns `403` with `"code": "FORBIDDEN_FOR_ROLE"`.
+
     ## Rate Limits
-    Requests are rate limited per API key (and per IP). Exceeding the limit returns `429` with a `Retry-After` header (seconds) — back off and retry.
+    Requests are rate limited per company (and per IP). Reports have their own lower limit, and some actions that send messages are metered separately: broadcasts (30 an hour), export emails (30 an hour, 100 a day) and invoice reminders (one per invoice per hour). Exceeding a limit returns `429` with a `Retry-After` header (seconds). Back off and retry after that many seconds.
+
+    ## Webhooks
+    A company can have up to 100 active webhooks. Subscribing the same URL to the same events again returns the existing webhook (`200`, without its secret) instead of creating a copy. Webhook URLs must be public `https` addresses.
+
+    ## Export emails
+    Report, invoice and data exports can only be emailed to a team member or the company email address on file.
 
     ## Pagination
     List endpoints accept `?limit=` (default 50, max 100). When more results may exist, the response includes an `X-Next-Cursor` header; pass its value back as `?cursor=` to fetch the next page. (Filtered list queries return a single capped page.)
 
     ## Idempotency
-    Send an `Idempotency-Key` header on POST creates to retry safely: the first successful response is stored and replayed for any retry using the same key (scoped per company, ~48h).
+    Send a unique `Idempotency-Key` header of 1 to 200 bytes on POST creates. The key is bound to the API key, route, and request body for about 48 hours. The first successful response is stored before it is returned and is replayed on a matching retry. A simultaneous retry returns `409` with `Retry-After`; reusing the key for different input also returns `409`.
 
     ## Errors
-    Errors return a JSON body of the form `{ "error": "message" }`. Common status codes: `400` validation error, `401` missing/invalid API key, `403` Walkies API subscription required, `404` not found, `429` rate limited, `500` server error.
+    Errors return a JSON body of the form `{ "error": "message" }`. Common status codes: `400` validation error, `401` missing/invalid API key, `403` Walkies API subscription required or not allowed for the key creator's role, `404` not found, `409` conflict, webhook limit or idempotency request in progress, `429` rate limited, `500` server error.
 
     ## Subscription
     The API requires a **Walkies API subscription**. Requests from accounts without an active Walkies API subscription receive a `403` response.
-  version: 1.2.0
+  version: 1.3.0
   contact:
     name: Walkies Support
     url: https://walkies.app
@@ -119,6 +128,18 @@ components:
           nullable: true
           description: This client's default billing/invoice type (takes priority over the company default).
           enum: [single, whenStarted, prePaid, recurring, none]
+        preferredLanguage:
+          type: string
+          nullable: true
+          example: fr
+          description: >-
+            Language for messages (emails, texts, notifications) to the main
+            owner, as a language code. Null means automatic (their Journal
+            app's language, else the company default).
+        secondaryPreferredLanguage:
+          type: string
+          nullable: true
+          description: Language for messages to the second owner, as preferredLanguage.
         status:
           type: string
           enum: [active, archived]
@@ -140,7 +161,7 @@ components:
           example: Max
         type:
           type: string
-          enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+          enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
         breed:
           type: string
           example: Labrador
@@ -192,9 +213,10 @@ components:
             type: integer
           description: >-
             Per-species extra charge per additional pet, in pence/cents, keyed by pet type
-            (dog, cat, pig, bird, fish, small pet, reptile, horse, other). A key present with
-            value 0 makes that species free as an additional pet; a pet type with no key falls
-            back to additionalPetAmount.
+            (dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse,
+            other). A key present with value 0 makes that exact type free as an additional pet;
+            a pet type with no exact key falls back to additionalPetAmount. Dog, small dog,
+            large dog, and puppy are independent keys.
         currency:
           type: string
           example: GBP
@@ -306,8 +328,8 @@ components:
           type: array
           items:
             type: string
-            enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
-          description: Pet types the surcharge applies to. Empty means any pet.
+            enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
+          description: Pet types the surcharge applies to. Matching is exact, so each dog type must be selected separately. Empty means any pet.
         petIDs:
           type: array
           items:
@@ -1401,6 +1423,7 @@ components:
         checkAvailability: { type: boolean, description: Whether availability is checked when customers book (so they cannot book unavailable slots) }
         allowCustomerCancellation: { type: boolean, description: Whether customers can cancel }
         cancellationDaysBeforeAppointment: { type: integer, description: Minimum days before an appointment a customer may cancel }
+        travelBufferMinutes: { type: integer, minimum: 0, maximum: 240, description: "Minutes clients must leave after another appointment for the same team member when checkAvailability is on. 0 = no buffer." }
     RegionSettings:
       type: object
       description: >-
@@ -1408,13 +1431,25 @@ components:
         `currency` sent on its own (no `country`) is used as-is. `timezone` is the authoritative
         booking calendar and cannot be changed once future appointments, repeat series,
         weekly/special hours, appointment windows, surcharge rules, or recurring invoices exist.
+        `businessLanguage` is the language the business works in.
       properties:
         country: { type: string, description: ISO 3166-1 alpha-2 country code (e.g. US, GB, FR). Setting this auto-sets currency. }
         currency: { type: string, description: ISO 4217 currency code. Derived from country when country is set; honoured directly only when country is omitted. }
         timezone: { type: string, description: IANA timezone name (e.g. Europe/London, America/New_York). }
+        businessLanguage:
+          type: string
+          nullable: true
+          description: >-
+            The business's language, as a lowercase ISO 639-1 code from the supported languages
+            (currently en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el; pt is Brazilian Portuguese). Messages to clients and team members who have no language of their
+            own, and the public website, use it. null means automatic: the country's language
+            (e.g. FR→fr, BE→nl, BR→pt, GB→en). Send null to return to automatic. A person's own app
+            language always wins over it.
     TravelLog:
       type: object
-      description: A recorded travel/mileage log. Read-only. Raw GPS coordinates are excluded.
+      description: >-
+        A recorded travel/mileage log. Raw GPS coordinates are excluded from API responses.
+        Distance and odometer values are always stored and returned in metres.
       properties:
         id:
           type: string
@@ -1423,6 +1458,7 @@ components:
           nullable: true
         distance:
           type: number
+          description: Distance travelled, in metres.
         startTime:
           type: string
           format: date-time
@@ -1767,6 +1803,14 @@ paths:
                   type: string
                   description: This client's default billing/invoice type.
                   enum: [single, whenStarted, prePaid, recurring, none]
+                preferredLanguage:
+                  type: string
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  description: Language for messages to the main owner. Sets it as chosen by the business, so the client's Journal app won't change it.
+                secondaryPreferredLanguage:
+                  type: string
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  description: Language for messages to the second owner.
                 secondaryFirstName:
                   type: string
                 secondaryLastName:
@@ -1869,6 +1913,16 @@ paths:
                   type: string
                   description: This client's default billing/invoice type (priority over the company default).
                   enum: [single, whenStarted, prePaid, recurring, none]
+                preferredLanguage:
+                  type: string
+                  nullable: true
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  description: Language for messages to the main owner. Sets it as chosen by the business, so the client's Journal app won't change it. Null sets it back to automatic.
+                secondaryPreferredLanguage:
+                  type: string
+                  nullable: true
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  description: Language for messages to the second owner. Null sets it back to automatic.
                 imageUrl:
                   type: string
                   description: URL of a profile picture (max 5MB)
@@ -1901,7 +1955,7 @@ paths:
                   type: string
                 type:
                   type: string
-                  enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+                  enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
                 gender:
                   type: string
                   enum: [Male, Female]
@@ -2022,9 +2076,10 @@ paths:
                     minimum: 0
                   description: >-
                     Per-species extra charge per additional pet, in MINOR UNITS, keyed by pet type
-                    (dog, cat, pig, bird, fish, small pet, reptile, horse, other). Values must be
-                    non-negative integers; 0 makes that species free as an additional pet. A pet
-                    type with no key falls back to additionalPetAmount.
+                    (dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile,
+                    horse, other). Values must be non-negative integers; 0 makes that exact type
+                    free as an additional pet. A pet type with no exact key falls back to
+                    additionalPetAmount. Dog and the other dog types are independent keys.
       responses:
         '201':
           description: Created
@@ -2074,9 +2129,10 @@ paths:
                     minimum: 0
                   description: >-
                     Per-species extra charge per additional pet, in MINOR UNITS, keyed by pet type
-                    (dog, cat, pig, bird, fish, small pet, reptile, horse, other). The map replaces
-                    the stored one wholesale (omitted species are removed). Send null to clear every
-                    per-species rate.
+                    (dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile,
+                    horse, other). Dog and the other dog types are independent keys. The map
+                    replaces the stored one wholesale (omitted species are removed). Send null to
+                    clear every per-species rate.
                 hidden:
                   type: boolean
       responses:
@@ -2138,9 +2194,9 @@ paths:
           description: Maximum rules to return in this page.
         - name: cursor
           in: query
+          description: Document id returned in X-Next-Cursor by the previous page.
           schema:
             type: string
-          description: Document id returned in X-Next-Cursor by the previous page.
       responses:
         '200':
           description: Success
@@ -2231,8 +2287,8 @@ paths:
                   type: array
                   items:
                     type: string
-                    enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
-                  description: Omit or empty for any pet. Combined with petIDs as an intersection.
+                    enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
+                  description: Matching is exact, so each dog type must be selected separately. Omit or empty for any pet. Combined with petIDs as an intersection.
                 petIDs:
                   type: array
                   items:
@@ -2352,7 +2408,8 @@ paths:
                   type: array
                   items:
                     type: string
-                    enum: [dog, cat, pig, bird, fish, small pet, reptile, horse, other]
+                    enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
+                  description: Matching is exact, so each dog type must be selected separately.
                 petIDs:
                   type: array
                   items:
@@ -4556,14 +4613,18 @@ paths:
   /settings/region:
     get:
       summary: Get Company Region
-      description: The company's country (ISO 3166-1 alpha-2), currency (ISO 4217) and IANA timezone.
+      description: >-
+        The company's country (ISO 3166-1 alpha-2), currency (ISO 4217), IANA timezone and
+        business language (null = automatic, from the country).
       tags: [Settings]
       responses:
         '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/RegionSettings' } } } }
     patch:
       summary: Update Company Region
       description: >-
-        Change the company's country and/or timezone. Setting `country` automatically sets the
+        Change the company's country, timezone and/or business language. `businessLanguage` takes a
+        supported language code (en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el) or null for automatic (the country's language); any other
+        value is refused with 400. Setting `country` automatically sets the
         matching `currency` (e.g. US→USD, GB→GBP, FR→EUR); a `currency` you pass is honoured only
         when no `country` is provided. Region affects money display business-wide. The timezone
         defines every booking, availability window and recurring appointment in the company
@@ -4592,9 +4653,18 @@ paths:
           in: query
           schema:
             type: string
+        - name: active
+          in: query
+          description: Filter by active or completed Travel Logs before pagination.
+          schema:
+            type: boolean
       responses:
         '200':
           description: Success
+          headers:
+            X-Next-Cursor:
+              description: Cursor for the next page when another page may exist.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -4609,7 +4679,9 @@ paths:
         are app-only and cannot be set via the API. The created log is inactive
         (completed). When set, loggingTeamMemberID is validated against your team
         and recorded as the team member who logged the travel (used by report
-        filters); when omitted, no logging team member is recorded.
+        filters); it is also included in teamMembers so payroll and exports retain
+        the attribution. Unknown team or appointment ids are rejected. A linked
+        appointment and travel log are updated atomically.
       tags: [Travel Logs]
       requestBody:
         required: true
@@ -4617,15 +4689,17 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [startTime, endTime, distanceMeters]
               properties:
                 startTime:
                   type: string
                   format: date-time
+                  description: RFC 3339 instant with Z or an explicit UTC offset.
                 endTime:
                   type: string
                   format: date-time
-                  description: Must be on or after startTime
+                  description: RFC 3339 instant with Z or an explicit UTC offset. Must be after startTime.
                 distanceMeters:
                   type: number
                   description: Distance in meters; must be greater than 0
@@ -4633,13 +4707,15 @@ paths:
                   type: array
                   items:
                     type: string
-                  description: Team members on the trip (unknown ids are skipped)
+                  maxItems: 50
+                  uniqueItems: true
+                  description: Team members on the trip. Every id must exist in this company.
                 loggingTeamMemberID:
                   type: string
                   description: Optional. The team member who logged this travel — validated against your team (unknown id returns 400).
                 appointmentID:
                   type: string
-                  description: Optional appointment this travel relates to
+                  description: Optional appointment in this company. An appointment can link to only one travel log.
       responses:
         '201':
           description: Created
@@ -4649,6 +4725,8 @@ paths:
                 $ref: '#/components/schemas/TravelLog'
         '400':
           description: Validation error
+        '409':
+          description: The appointment is already linked to another travel log
   /travel-logs/{id}:
     get:
       summary: Get Travel Log
@@ -4671,8 +4749,8 @@ paths:
     patch:
       summary: Update Travel Log
       description: >-
-        Edits a completed travel log (active/in-progress logs return 400).
-        endTime must remain on or after startTime across partial updates.
+        Edits a completed travel log. Active/in-progress logs return 409.
+        endTime must remain strictly after startTime across partial updates.
       tags: [Travel Logs]
       parameters:
         - name: id
@@ -4681,17 +4759,22 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              additionalProperties: false
+              minProperties: 1
               properties:
                 startTime:
                   type: string
                   format: date-time
+                  description: RFC 3339 instant with Z or an explicit UTC offset.
                 endTime:
                   type: string
                   format: date-time
+                  description: RFC 3339 instant with Z or an explicit UTC offset.
                 distanceMeters:
                   type: number
                   description: Distance in meters; must be greater than 0
@@ -4699,7 +4782,9 @@ paths:
                   type: array
                   items:
                     type: string
-                  description: Replaces the embedded team-member list (unknown ids are skipped)
+                  maxItems: 50
+                  uniqueItems: true
+                  description: Replaces the assigned team members. Every id must exist in this company; the original logger remains assigned.
       responses:
         '200':
           description: Updated
@@ -4709,6 +4794,8 @@ paths:
                 $ref: '#/components/schemas/TravelLog'
         '404':
           description: Travel log not found
+        '409':
+          description: An active/in-progress travel log cannot be edited
     delete:
       summary: Delete Travel Log
       tags: [Travel Logs]
@@ -4730,6 +4817,8 @@ paths:
                     type: boolean
         '404':
           description: Travel log not found
+        '409':
+          description: An active/in-progress travel log cannot be deleted
   /special-hours:
     get:
       summary: List Special Hours
@@ -5028,6 +5117,9 @@ paths:
               properties:
                 name:
                   type: string
+                type:
+                  type: string
+                  enum: [dog, small dog, large dog, puppy, cat, pig, bird, fish, small pet, reptile, horse, other]
                 breed:
                   type: string
                 weight:
@@ -5972,6 +6064,14 @@ paths:
                 status: { type: string, enum: [paid, unpaid, all], description: invoices-summary only }
                 payMode: { type: string, enum: [perActivity, perHour], description: payroll only }
                 unit: { type: string, enum: [miles, km], description: travel-logs only }
+                loggingTeamMemberIds:
+                  type: array
+                  items: { type: string }
+                  description: travel-logs only; filters by the person who recorded the trip.
+                assignedTeamMemberIds:
+                  type: array
+                  items: { type: string }
+                  description: travel-logs only; filters by people assigned to the trip.
       responses:
         '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, sentTo: { type: string }, filename: { type: string }, truncated: { type: boolean } } } } } }
         '400': { description: Unknown report type, no recipient email, or invalid range }
@@ -6021,7 +6121,9 @@ paths:
         - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
         - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
         - { name: unit, in: query, schema: { type: string, enum: [miles, km], default: km } }
-        - { name: teamMemberIds, in: query, description: Comma-separated team member ids to filter by (matched on the logging team member), schema: { type: string } }
+        - { name: loggingTeamMemberIds, in: query, description: Comma-separated team member ids to filter by the person who recorded the trip., schema: { type: string } }
+        - { name: assignedTeamMemberIds, in: query, description: Comma-separated team member ids to filter by people assigned to the trip. Combines with loggingTeamMemberIds using AND., schema: { type: string } }
+        - { name: teamMemberIds, in: query, deprecated: true, description: Deprecated alias for loggingTeamMemberIds., schema: { type: string } }
       responses:
         '200':
           description: Travel logs report
@@ -6052,6 +6154,14 @@ paths:
                         distanceMeters: { type: number }
                         distance: { type: number }
                         loggingTeamMember: { type: object, nullable: true, properties: { id: { type: string }, name: { type: string } } }
+                        loggedBy:
+                          type: object
+                          nullable: true
+                          description: Display attribution. Uses the explicit logger, or the sole assigned member on an unambiguous legacy row.
+                          properties:
+                            id: { type: string }
+                            name: { type: string }
+                            source: { type: string, enum: [loggingTeamMember, legacyAssignedTeamMember] }
                         teamMembers:
                           type: array
                           items: { type: object, properties: { id: { type: string }, name: { type: string } } }
