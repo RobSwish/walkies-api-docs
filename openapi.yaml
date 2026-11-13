@@ -32,7 +32,7 @@ info:
 
     ## Subscription
     The API requires a **Walkies API subscription**. Requests from accounts without an active Walkies API subscription receive a `403` response.
-  version: 1.3.0
+  version: 1.4.0
   contact:
     name: Walkies Support
     url: https://walkies.app
@@ -142,7 +142,16 @@ components:
           description: Language for messages to the second owner, as preferredLanguage.
         status:
           type: string
-          enum: [active, archived]
+          enum: [active, archived, pending]
+          description: pending is a new client who asked to book from the public profile; they become active when their first booking is accepted.
+        assignedTeamMemberIDs:
+          type: array
+          items:
+            type: string
+          description: >-
+            The Team Members (team member ids) who may message this client. Admins
+            and Sub Admins reach every client. Change it with POST and DELETE
+            /customers/{id}/team-members; PATCH /customers never changes it.
         customQuestionAnswers:
           $ref: '#/components/schemas/CustomQuestionAnswers'
         createdDate:
@@ -181,7 +190,8 @@ components:
           type: string
         status:
           type: string
-          enum: [active, archived, passedAway]
+          enum: [active, archived, passedAway, pending]
+          description: pending is a pet a new client added while asking to book; it becomes active with the client.
         customQuestionAnswers:
           $ref: '#/components/schemas/CustomQuestionAnswers'
 
@@ -217,6 +227,13 @@ components:
             other). A key present with value 0 makes that exact type free as an additional pet;
             a pet type with no exact key falls back to additionalPetAmount. Dog, small dog,
             large dog, and puppy are independent keys.
+        includedPetCount:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >-
+            How many pets the base price covers before additional-pet charges apply. Blank means 1.
+            The pets with the highest rates are the ones covered.
         currency:
           type: string
           example: GBP
@@ -239,12 +256,118 @@ components:
           type: string
           enum: [perService, perDay, perNight]
           default: perService
+        allowOtherBookingsDuringStay:
+          type: boolean
+          nullable: true
+          description: >
+            Pet sitting services only (per day, per night, boarding, home sitting, overnight).
+            False stops the assigned team member being booked for other services during the
+            stay. Unset or true changes nothing. Send null on update to clear it.
+        capacity:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Optional. How many pets can book the same start time with one team member. Unset
+            means one booking at a time. Customer bookings cannot go over it.
+        pricingType:
+          type: string
+          enum: [fixed, hourly]
+          default: fixed
+          description: >-
+            How the service is billed. `fixed` charges `amount` per unit of its cadence.
+            `hourly` charges by time: the service is authored as `hourlyRate` per hour and
+            billed in whole `billingIncrementMinutes` units derived from the booked span,
+            so `amount` becomes the DERIVED price of one increment and `quantity` becomes
+            the number of increments. An hourly service always keeps cadence `perService`.
+        hourlyRate:
+          type: number
+          nullable: true
+          description: >-
+            Price per HOUR in pence/cents. Required when pricingType is hourly, and the
+            source of truth for that service's price: `amount` is derived from it and any
+            `amount` supplied on create or update is overwritten.
+          example: 3000
+        additionalPetHourlyRate:
+          type: number
+          nullable: true
+          description: Extra charge per additional pet, per HOUR (pence/cents). Generic fallback for pet types with no additionalPetHourlyRates entry.
+        additionalPetHourlyRates:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: integer
+          description: >-
+            Per-species extra charge per additional pet, per HOUR, keyed by pet type exactly
+            as additionalPetAmounts is. Scaled to the billing increment to produce
+            additionalPetAmounts. Replaced wholesale on update; send null to clear.
+        billingIncrementMinutes:
+          type: integer
+          enum: [15, 30, 60]
+          nullable: true
+          default: 30
+          description: The billable unit for an hourly service. Part units round up. Null on a fixed-price service.
+        minimumBillableMinutes:
+          type: integer
+          nullable: true
+          description: Optional floor on the billed time for an hourly service, in minutes.
         hidden:
           type: boolean
           default: false
         position:
           type: integer
           default: 0
+
+    Discount:
+      type: object
+      description: A catalogue discount (WAL-37), read-only in the API.
+      properties:
+        id: { type: string }
+        title: { type: string }
+        valueType: { type: string, enum: [fixed, percentage] }
+        amount: { type: integer, nullable: true, description: Minor units when valueType is fixed. }
+        percentage: { type: number, nullable: true }
+        currency: { type: string, nullable: true }
+        hidden: { type: boolean, description: "Automatically apply off: manual, or code-only." }
+        requiresCode: { type: boolean, description: Only applies when a client types one of its codes. }
+        startDate: { type: string, format: date-time, nullable: true }
+        endDate: { type: string, format: date-time, nullable: true }
+        repeatsAnnually: { type: boolean }
+        daysOfWeek: { type: array, items: { type: integer } }
+        serviceIDs: { type: array, items: { type: string } }
+        petTypes: { type: array, items: { type: string } }
+        customerIDs: { type: array, items: { type: string } }
+        position: { type: integer }
+
+    DiscountCode:
+      type: object
+      description: >-
+        A code that unlocks a catalogue discount for one booking or invoice
+        (WAL-12). The API makes, edits and deletes them exactly as the apps' code
+        editor does.
+      properties:
+        id: { type: string }
+        code: { type: string, example: WELCOME10, description: "Stored upper case, 3 to 30 letters, digits or hyphens." }
+        discountID: { type: string }
+        discountTitle: { type: string, nullable: true, description: "The discount's title, or null when the discount was deleted." }
+        valueType: { type: string, nullable: true, enum: [fixed, percentage] }
+        amount: { type: integer, nullable: true, description: Fixed discount in minor units when valueType is fixed. }
+        percentage: { type: number, nullable: true, description: Percentage when valueType is percentage. }
+        currency: { type: string, nullable: true }
+        active: { type: boolean, description: "The code's Active switch." }
+        state:
+          type: string
+          enum: [active, inactive, expired, usedUp, discountDeleted]
+          description: >-
+            Whether a client can use the code right now, checked in this order:
+            switched off, its discount deleted, past its last day, total uses
+            reached. The per-client limit depends on the client, so it is not a state.
+        validUntil: { type: string, format: date-time, nullable: true, description: "End of the code's last day in the company timezone, or null for no end date." }
+        maxUses: { type: integer, nullable: true, description: Total uses allowed, or null for no limit. }
+        maxUsesPerClient: { type: integer, nullable: true, description: Uses allowed per client, or null for no limit. }
+        uses: { type: integer, description: How many times it has been used. }
+        createdDate: { type: string, format: date-time, nullable: true }
+        updatedDate: { type: string, format: date-time, nullable: true }
 
     Surcharge:
       type: object
@@ -348,7 +471,13 @@ components:
         hidden:
           type: boolean
           default: false
-          description: Paused surcharges never apply automatically. A sitter may still choose one explicitly from the manual Add surcharge screen when its scope matches.
+          description: >-
+            The inverse of the apps' Automatically apply switch. false (the
+            default) applies the surcharge automatically to new bookings when
+            its criteria are met. true makes it manual only, shown as
+            "(Manual)" in the apps: it never applies automatically, but a
+            sitter may still choose it explicitly from the Add surcharge
+            screen when its scope matches.
         position:
           type: integer
           default: 0
@@ -405,15 +534,33 @@ components:
         amount:
           type: number
           description: >-
-            Resolved amount in pence/cents. Normally positive; a synthetic
-            Surcharge adjustment row may be negative to reconcile legacy data
-            to the authoritative surchargeAmount scalar.
+            Resolved amount in pence/cents, for every application of the rule
+            (quantity times the single application). Normally positive; a
+            synthetic Surcharge adjustment row may be negative to reconcile
+            legacy data to the authoritative surchargeAmount scalar.
+        quantity:
+          type: integer
+          minimum: 1
+          description: >-
+            How many times the rule is applied (for example two "Extra stop"
+            charges). 1 for a single application. amount and customerAmounts
+            already include it; the single price is amount divided by quantity.
+            Merged invoices (a whole series, combined invoices) sum it.
+        entryID:
+          type: string
+          description: >-
+            Present only on a one-off surcharge the sitter typed in (surchargeID
+            is empty, manual is true): its own id, the same on every occurrence
+            of a series and on invoices built from them. Rows with different
+            entryIDs are separate charges even with the same title and amount.
         overridden:
           type: boolean
           description: A sitter hand-edited this amount; it is never recomputed.
         manual:
           type: boolean
-          description: Added by hand from the catalog rather than auto-matched.
+          description: >-
+            Added by hand rather than auto-matched: a catalog rule picked by
+            hand, or a one-off (no surchargeID, with an entryID).
         customerAmounts:
           type: object
           additionalProperties:
@@ -424,7 +571,138 @@ components:
             from each household's pet-filtered service line. Legacy snapshots
             omit this map and are billed to the appointment's primary customer
             once.
+    AppliedDiscount:
+      type: object
+      readOnly: true
+      description: >-
+        A discount snapshot (WAL-37): the AppliedSurcharge shape keyed by
+        discountID, with a positive amount that is SUBTRACTED. The document's
+        discountAmount is the arithmetic authority; a scalar-only legacy
+        document reads as one keyless manual "Discount" row, and drift adds a
+        signed "Discount adjustment" row. A row capped to 0 is kept.
+      properties:
+        discountID:
+          type: string
+          description: The catalog discount this row resolved from; empty for one-off and legacy rows.
+        entryID:
+          type: string
+          description: A one-off row's own ID, copied to every occurrence and invoice; rows merge by ID, never by name.
+        discountCodeID:
+          type: string
+          description: Present when a client applied this discount with a discount code (WAL-12). The ID of the code, never the code itself. A fixed-amount code comes off once per booking or invoice, so on an appointment this row is that appointment's share of the code's amount.
+        quantity:
+          type: integer
+          minimum: 2
+          description: How many times this discount is applied. Absent means 1; amount already includes it.
+        title:
+          type: string
+        valueType:
+          type: string
+          enum: [fixed, percentage]
+        percentage:
+          type: number
+          nullable: true
+        baseAmount:
+          type: number
+          nullable: true
+        units:
+          type: integer
+        amount:
+          type: number
+        overridden:
+          type: boolean
+        manual:
+          type: boolean
+        customerAmounts:
+          type: object
+          additionalProperties:
+            type: integer
 
+    Vaccination:
+      type: object
+      description: >-
+        A vaccination, treatment or test on a pet's record. Dates are calendar
+        days (YYYY-MM-DD). `status` is worked out against the company's own day:
+        overdue (past its due date), dueSoon (due today or within the company's
+        due-soon window), upToDate, or noDueDate (tests and other entries that do
+        not expire). A record replaced by a newer dose of the same type is
+        `superseded` and is never overdue.
+      properties:
+        id: { type: string, readOnly: true }
+        customerID: { type: string, readOnly: true }
+        petID: { type: string }
+        petName: { type: string, readOnly: true }
+        type: { type: string, description: A key from GET /vaccinations/types, or `other` with a typeName. }
+        typeName: { type: string }
+        category: { type: string, enum: [vaccine, treatment, test, other], readOnly: true }
+        dateGiven: { type: string, format: date, nullable: true }
+        dateDue: { type: string, format: date, nullable: true }
+        status: { type: string, enum: [overdue, dueSoon, upToDate, noDueDate], readOnly: true }
+        daysOverdue: { type: integer, readOnly: true }
+        daysUntilDue: { type: integer, readOnly: true }
+        batchNumber: { type: string, nullable: true }
+        administeredBy: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        verificationState: { type: string, enum: [unverified, verified, rejected], readOnly: true }
+        verificationNote: { type: string, nullable: true, readOnly: true }
+        certificateAttached: { type: boolean, readOnly: true }
+        superseded: { type: boolean, readOnly: true }
+        supersededByID: { type: string, nullable: true, readOnly: true }
+        addedByRole: { type: string, enum: [sitter, customer], readOnly: true }
+        createdDate: { type: string, format: date-time, readOnly: true }
+        updatedDate: { type: string, format: date-time, readOnly: true }
+    PayrollRun:
+      type: object
+      description: >-
+        A saved payroll, the same record the apps show in Payroll. It is a
+        snapshot: rates and totals are as they were when it was run. Money is
+        in minor units (pence/cents). Gross pay is the service rows plus any
+        travel the run pays, extra pay and tips; net pay equals gross pay.
+      properties:
+        id: { type: string, readOnly: true }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        payMode: { type: string, enum: [perActivity, perHour] }
+        includeTravelDistance: { type: boolean }
+        includeTravelDuration: { type: boolean }
+        totalGrossPay: { type: integer, nullable: true }
+        totalNetPay: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+        createdDate: { type: string, format: date-time, nullable: true, description: Set on payrolls run through the API. }
+        teamMembers:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              activityRate: { type: number }
+              hourlyRate: { type: number }
+              mileRate: { type: number }
+              activityPercentRate: { type: number, nullable: true }
+              activityCount: { type: number }
+              activityDurationSeconds: { type: number }
+              travelDistanceMeters: { type: number }
+              travelDurationSeconds: { type: number }
+              serviceBreakdown:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    serviceID: { type: string }
+                    serviceTitle: { type: string }
+                    serviceType: { type: string }
+                    count: { type: number }
+                    durationSeconds: { type: number }
+                    rateType: { type: string, nullable: true, enum: [fixed, percent, hourly] }
+                    rate: { type: number }
+                    revenue: { type: number, nullable: true }
+                    total: { type: integer }
+              extraPay: { type: integer }
+              tips: { type: integer }
+              notes: { type: string, nullable: true }
+              grossPay: { type: integer, nullable: true }
+              netPay: { type: integer, nullable: true }
     Appointment:
       type: object
       properties:
@@ -500,6 +778,21 @@ components:
           type: array
           items:
             type: string
+        groupID:
+          type: string
+          readOnly: true
+          description: Shared by every appointment in a repeating series. The same as `id` for a one-off.
+        repeats:
+          type: array
+          readOnly: true
+          items: { type: integer }
+          description: The weekdays a series repeats on, 0 = Sunday. Empty for a one-off.
+        repeatEndDate:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: The end of the series' last day.
         invoiceType:
           type: string
           enum: [none, single, whenStarted, prePaid]
@@ -546,6 +839,26 @@ components:
             Canonical catalog surcharge ids that staff excluded from automatic
             pricing for this appointment. Manual, overridden and legacy keyless
             frozen rows are unaffected. API appointment writes cannot set this field.
+        discountAmount:
+          type: number
+          readOnly: true
+          description: >-
+            Total discount in pence/cents, subtracted from the total. Present only
+            when the appointment carries a discount decision.
+        discounts:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/AppliedDiscount'
+          description: >-
+            Applied discount rows (WAL-37). Present only when the document carries a
+            discount decision. Server-maintained; client-supplied rows are ignored.
+        excludedDiscountIDs:
+          type: array
+          readOnly: true
+          items:
+            type: string
+          description: Catalog discount ids staff excluded from automatic pricing. Read-only.
 
     Invoice:
       type: object
@@ -588,6 +901,15 @@ components:
                 type: string
               country:
                 type: string
+              oneOff:
+                type: boolean
+                description: Present (true) on a one-off add-on typed onto this invoice, not from the service catalogue.
+              cancellationFee:
+                type: boolean
+                description: Present (true) on the line that charges a late cancellation's fee in place of the appointment.
+        cancellationFeeInvoice:
+          type: boolean
+          description: Present (true) when the invoice was raised only to charge a cancellation fee.
         pets:
           type: array
           items:
@@ -653,6 +975,14 @@ components:
             Sum of the applied surcharge entries' amounts, in pence/cents.
             Server-maintained; client-supplied surcharge fields on writes are
             ignored.
+        discounts:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/AppliedDiscount'
+          description: >-
+            Applied discount rows (WAL-37). Present only when the document carries a
+            discount decision. Server-maintained; client-supplied rows are ignored.
         serviceTaxPercentage:
           type: number
           nullable: true
@@ -747,6 +1077,8 @@ components:
               - customer.created
               - customer.updated
               - customer.deleted
+              - customer.connected
+              - customer.disconnected
               - pet.created
               - pet.updated
               - pet.deleted
@@ -755,6 +1087,11 @@ components:
               - invoice.paid
               - invoice.overdue
               - invoice.deleted
+              - credit_note.created
+              - credit_note.applied
+              - credit_note.unapplied
+              - credit_note.voided
+              - credit_note.deleted
               - expense.created
               - expense.updated
               - expense.deleted
@@ -952,7 +1289,7 @@ components:
           type: integer
     Activity:
       type: object
-      description: A recorded walk, hike, run, taxi journey, or check-in (shared WalkiesActivity model). Raw GPS and device identifiers are excluded.
+      description: A recorded walk, hike, run or taxi journey (shared WalkiesActivity model). Raw GPS and device identifiers are excluded.
       properties:
         id:
           type: string
@@ -1112,6 +1449,51 @@ components:
           additionalProperties:
             type: number
           description: Per-service pay rates keyed by service ID (pence/cents)
+        workingHours:
+          type: object
+          description: Optional read-only weekday map, keys 0–6. Use the member working-hours route to edit; omitted from embedded appointment assignees.
+          additionalProperties:
+            $ref: '#/components/schemas/MemberWorkingDay'
+    MemberWorkingDay:
+      type: object
+      description: One member override in the current company timezone; missing day keys inherit company hours.
+      required: [id, timezone, times]
+      additionalProperties: false
+      properties:
+        id: { type: string, enum: ['0', '1', '2', '3', '4', '5', '6'] }
+        timezone: { type: string }
+        times:
+          type: array
+          maxItems: 12
+          description: Sorted, nonoverlapping same-day blocks; an empty array explicitly closes the day.
+          items:
+            type: object
+            additionalProperties: false
+            required: [startHour, startMinute, endHour, endMinute, timezone]
+            properties:
+              startHour: { type: integer, minimum: 0, maximum: 23 }
+              startMinute: { type: integer, minimum: 0, maximum: 59 }
+              endHour: { type: integer, minimum: 0, maximum: 23 }
+              endMinute: { type: integer, minimum: 0, maximum: 59 }
+              timezone: { type: string }
+    MemberWorkingHoursResponse:
+      type: object
+      required: [teamMemberID, day, dayName, timezone, inherited, closed, times]
+      properties:
+        teamMemberID: { type: string }
+        day: { type: integer, minimum: 0, maximum: 6 }
+        dayName: { type: string }
+        timezone: { type: string }
+        inherited: { type: boolean }
+        closed: { type: boolean, nullable: true, description: 'Null when inherited; true when explicitly closed.' }
+        times:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            properties:
+              start: { type: string }
+              end: { type: string }
     Contract:
       type: object
       properties:
@@ -1422,8 +1804,15 @@ components:
         appointmentWindowsBasedOnAvailability: { type: boolean, nullable: true }
         checkAvailability: { type: boolean, description: Whether availability is checked when customers book (so they cannot book unavailable slots) }
         allowCustomerCancellation: { type: boolean, description: Whether customers can cancel }
-        cancellationDaysBeforeAppointment: { type: integer, description: Minimum days before an appointment a customer may cancel }
+        cancellationDaysBeforeAppointment: { type: integer, description: "The free-cancellation window: minimum days before an appointment a customer may cancel free of charge. At least 1 while the cancellation fee is on." }
+        cancellationFeeEnabled: { type: boolean, description: "Whether a cancellation fee applies to appointments cancelled inside the window. Turning it on raises cancellationDaysBeforeAppointment to at least 1." }
+        cancellationFeeValueType: { type: string, enum: [percentage, fixed, fullPrice], description: "How the fee is worked out: a percentage of the appointment's price, a flat amount (never more than the appointment's price), or its full price." }
+        cancellationFeePercentage: { type: number, nullable: true, minimum: 0, exclusiveMinimum: true, maximum: 100, description: Fee percentage when cancellationFeeValueType is percentage }
+        cancellationFeeAmount: { type: integer, nullable: true, minimum: 1, description: Flat fee in minor units when cancellationFeeValueType is fixed }
         travelBufferMinutes: { type: integer, minimum: 0, maximum: 240, description: "Minutes clients must leave after another appointment for the same team member when checkAvailability is on. 0 = no buffer." }
+        blockBookingsWhenInvoicesUnpaid: { type: boolean, description: "Whether clients with an overdue unpaid invoice (due date passed, money still owing) must pay it before they can book. Sitter-created appointments are never blocked. Default false." }
+        allowNewClientBooking: { type: boolean, description: "Whether people who are not clients yet can request a booking from the public profile and website (they are added to the clients when the sitter accepts their first booking). Only applies while allowClientBooking is on. Existing clients are unaffected. Default true." }
+        newClientFirstBookingServiceID: { type: string, nullable: true, description: "The service a new client's first booking has to be, such as a meet and greet (a service ID). A new client is someone who signed up through the public booking page and has no accepted booking yet; once the sitter accepts their first booking they can book any service. Only applies while allowClientBooking and allowNewClientBooking are on. If the service is deleted or hidden, the requirement is off. null when off. In PATCH, send an empty string to turn it off." }
     RegionSettings:
       type: object
       description: >-
@@ -1441,7 +1830,7 @@ components:
           nullable: true
           description: >-
             The business's language, as a lowercase ISO 639-1 code from the supported languages
-            (currently en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el; pt is Brazilian Portuguese). Messages to clients and team members who have no language of their
+            (currently en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi; pt is Brazilian Portuguese). Messages to clients and team members who have no language of their
             own, and the public website, use it. null means automatic: the country's language
             (e.g. FR→fr, BE→nl, BR→pt, GB→en). Send null to return to automatic. A person's own app
             language always wins over it.
@@ -1672,9 +2061,6 @@ components:
         petSittingCount:
           type: integer
           readOnly: true
-        checkInCount:
-          type: integer
-          readOnly: true
     Conversation:
       type: object
       properties:
@@ -1693,15 +2079,121 @@ components:
         lastMessage:
           type: object
           nullable: true
+          description: The latest message in the conversation. Attachment URLs follow the same rules as on a Message.
+          properties:
+            message:
+              type: string
+            senderID:
+              type: string
+            sentDate:
+              type: string
+              format: date-time
+              nullable: true
+            attachments:
+              type: array
+              items:
+                $ref: '#/components/schemas/MessageAttachment'
+            attachmentsExpired:
+              type: boolean
+            messageIsAttachmentFallback:
+              type: boolean
+    MessageAttachment:
+      type: object
+      description: >-
+        A photo, video or GIF sent with a message (Max companies and their clients). Photos and videos
+        are removed 30 days after the message was sent; the message text stays. Until then `url` (and
+        `posterUrl` for a video) is a signed link that works for about an hour, so fetch the file soon
+        after reading it. GIFs link to KLIPY. Once removed, only `id` and `type` are returned and the
+        message has `attachmentsExpired: true`.
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [image, video, gif]
+        width:
+          type: number
+          nullable: true
+        height:
+          type: number
+          nullable: true
+        duration:
+          type: number
+          nullable: true
+          description: Video length in seconds.
+        url:
+          type: string
+          nullable: true
+          description: Short-lived signed link to the file, or the KLIPY link for a GIF.
+        posterUrl:
+          type: string
+          nullable: true
+          description: Short-lived signed link to a video's poster image.
+    AutoReplySettings:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Off unless the business turns it on.
+        message:
+          type: string
+          maxLength: 1000
     Message:
       type: object
       properties:
         id:
           type: string
+        autoReply:
+          type: boolean
+          readOnly: true
+          description: True when the business's automatic reply sent this message. Omitted on every other message.
         message:
           type: string
+          description: The message text. When `messageIsAttachmentFallback` is true this is generic text such as "Sent a photo" that Walkies added for apps that cannot show attachments, not something the sender typed.
         senderID:
           type: string
+        actorUserID:
+          type: string
+          readOnly: true
+          description: Authenticated individual associated with a server-verified attribution snapshot. Omitted for legacy and machine-originated messages without a verified individual.
+        actorType:
+          type: string
+          enum: [teamMember, owner]
+          readOnly: true
+        linkPreview:
+          type: object
+          readOnly: true
+          description: Optional server-fetched first-link preview. Fetching never delays send. MCP message results retain text metadata but omit inline image bytes.
+          properties:
+            status:
+              type: string
+              enum: [pending, ready, none]
+            url:
+              type: string
+              maxLength: 2048
+            title:
+              type: string
+              maxLength: 300
+            description:
+              type: string
+              maxLength: 1000
+            imageDataURL:
+              type: string
+              maxLength: 21871
+              description: Optional validated JPEG data URL, at most 16 KiB decoded and 320 pixels. Never an external image URL.
+            themeColor:
+              type: string
+              pattern: '^#[0-9A-F]{6}$'
+              description: Optional colour from the page's theme-color meta tag (the first valid one without a media query, else the light-scheme one), normalised to uppercase "#RRGGBB". Omitted when the page has none.
+        linkPreviewSuppressed:
+          type: boolean
+          readOnly: true
+          description: True after the sender removes the card. Text remains unchanged and fetch retries cannot restore the card.
+        actorDisplayName:
+          type: string
+          maxLength: 120
+          readOnly: true
+          description: Customer-safe send-time display label. Use only with the complete actor tuple; do not resolve a current name for historical messages.
         customerID:
           type: string
         companyRead:
@@ -1715,6 +2207,16 @@ components:
         sentByAssistant:
           type: boolean
           description: Present and true when this message was sent by the Walkies AI assistant. Omitted for messages sent by a human team member.
+        attachments:
+          type: array
+          description: Photos, videos and GIFs sent with the message, in display order. Empty for a text message.
+          items:
+            $ref: '#/components/schemas/MessageAttachment'
+        attachmentsExpired:
+          type: boolean
+          description: True once the message's photos and videos have been removed (30 days after sending).
+        messageIsAttachmentFallback:
+          type: boolean
 
 paths:
   /me:
@@ -1805,11 +2307,11 @@ paths:
                   enum: [single, whenStarted, prePaid, recurring, none]
                 preferredLanguage:
                   type: string
-                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi]
                   description: Language for messages to the main owner. Sets it as chosen by the business, so the client's Journal app won't change it.
                 secondaryPreferredLanguage:
                   type: string
-                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi]
                   description: Language for messages to the second owner.
                 secondaryFirstName:
                   type: string
@@ -1916,12 +2418,12 @@ paths:
                 preferredLanguage:
                   type: string
                   nullable: true
-                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi]
                   description: Language for messages to the main owner. Sets it as chosen by the business, so the client's Journal app won't change it. Null sets it back to automatic.
                 secondaryPreferredLanguage:
                   type: string
                   nullable: true
-                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el]
+                  enum: [en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi]
                   description: Language for messages to the second owner. Null sets it back to automatic.
                 imageUrl:
                   type: string
@@ -1937,6 +2439,117 @@ paths:
               schema:
                 $ref: '#/components/schemas/Customer'
 
+  /customers/{id}/connection:
+    get:
+      summary: Get Client Journal Connection
+      tags: [Customers]
+      description: Whether each owner on the client record has connected the Walkies Journal app.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customerID: { type: string }
+                  primaryConnected: { type: boolean }
+                  secondaryConnected: { type: boolean }
+                  nextOwnerNumber: { type: integer, nullable: true, description: Who an invite would be for. Null when both owners are connected. }
+                  canInvite: { type: boolean }
+        '404':
+          description: Customer not found
+  /customers/{id}/invite:
+    post:
+      summary: Invite Client to Journal
+      tags: [Customers]
+      description: >-
+        Creates the invite link the sitter apps share, for the next owner on
+        this client record who has not connected yet, plus the apps' message to
+        send with it in that owner's language. Send it yourself (email, text).
+        The client connects by tapping it; the API cannot connect an account
+        for them. Admins and Sub Admins only. Links expire.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customerID: { type: string, description: Only on a client invite. }
+                  ownerNumber: { type: integer, description: Only on a client invite. 1 for the first owner, 2 for the second. }
+                  mode: { type: string, enum: [connectCustomer, createCustomer] }
+                  url: { type: string, description: The link to send. It opens the Walkies Journal app, or its store page. }
+                  message: { type: string, description: "The message the apps send with the link, in the client's language." }
+                  language: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        '403': { description: Not an Admin or Sub Admin }
+        '404': { description: Customer not found }
+        '409': { description: Both owners are already connected }
+        '502': { description: The link service did not respond. Try again. }
+  /customer-invites:
+    post:
+      summary: Create New Client Sign-up Link
+      tags: [Customers]
+      description: >-
+        Creates a sign-up link for new clients, as the apps' "invite a new
+        client" link does. Whoever opens it creates their own client record and
+        connects the Walkies Journal app in one step. One link works for many
+        people until it expires. The message is in your business language.
+        Admins and Sub Admins only.
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customerID: { type: string, description: Only on a client invite. }
+                  ownerNumber: { type: integer, description: Only on a client invite. 1 for the first owner, 2 for the second. }
+                  mode: { type: string, enum: [connectCustomer, createCustomer] }
+                  url: { type: string, description: The link to send. It opens the Walkies Journal app, or its store page. }
+                  message: { type: string, description: "The message the apps send with the link, in the client's language." }
+                  language: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        '403': { description: Not an Admin or Sub Admin }
+        '502': { description: The link service did not respond. Try again. }
+  /customers/{id}/disconnect:
+    post:
+      summary: Disconnect Client from Journal
+      tags: [Customers]
+      description: >-
+        Disconnects one owner's Walkies Journal app from the client record, as
+        the apps' Disconnect button does. The client record and its history
+        stay; the owner can be invited again. Admins and Sub Admins only.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ownerNumber: { type: integer, enum: [1, 2], default: 1 }
+      responses:
+        '200':
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  customerID: { type: string }
+                  ownerNumber: { type: integer }
+        '400': { description: ownerNumber must be 1 or 2 }
+        '404': { description: Customer not found }
+        '409': { description: That owner is not connected }
   /pets:
     post:
       summary: Create Pet
@@ -2043,7 +2656,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [title, type, amount]
+              required: [title, type]
               properties:
                 title:
                   type: string
@@ -2055,17 +2668,30 @@ paths:
                   type: integer
                   description: >-
                     Price in MINOR UNITS (pence/cents), NOT major units. Multiply the user's amount
-                    by 100 — e.g. £25.00 = 2500, £10 = 1000.
+                    by 100, e.g. GBP 25.00 = 2500, GBP 10 = 1000.
+                    REQUIRED unless pricingType is hourly, where it is derived from hourlyRate and
+                    any value sent is overwritten.
                   example: 2500
                 cadence:
                   type: string
                   enum: [perService, perDay, perNight]
                   default: perService
+                allowOtherBookingsDuringStay:
+                  type: boolean
+                  nullable: true
+                  description: Pet sitting services only. False stops the assigned team member being booked for other services during the stay. Null clears it.
                 description:
                   type: string
                 duration:
                   type: integer
                   description: Duration in minutes
+                capacity:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: >-
+                    Optional. How many pets can book the same start time with one team member. Unset
+                    means one booking at a time. Customer bookings cannot go over it.
                 additionalPetAmount:
                   type: integer
                   description: Extra charge per additional pet, in MINOR UNITS (pence/cents) — × 100, e.g. £5 = 500.
@@ -2080,6 +2706,48 @@ paths:
                     horse, other). Values must be non-negative integers; 0 makes that exact type
                     free as an additional pet. A pet type with no exact key falls back to
                     additionalPetAmount. Dog and the other dog types are independent keys.
+                includedPetCount:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  description: How many pets the base price covers before additional-pet charges apply. Blank means 1.
+                pricingType:
+                  type: string
+                  enum: [fixed, hourly]
+                  default: fixed
+                  description: >-
+                    Set to `hourly` to bill by time. An hourly service is priced from
+                    `hourlyRate` and billed in whole `billingIncrementMinutes` units taken from
+                    the booked span, so `amount` is DERIVED and any value sent for it is
+                    overwritten. `amount` is therefore not required when creating an hourly
+                    service, but `hourlyRate` is, and cadence must stay `perService`.
+                hourlyRate:
+                  type: integer
+                  description: >-
+                    Price per HOUR in MINOR UNITS (pence/cents) - x 100, e.g. GBP 30.00/hr = 3000.
+                    Required when pricingType is hourly.
+                  example: 3000
+                additionalPetHourlyRate:
+                  type: integer
+                  description: Extra charge per additional pet, per HOUR, in MINOR UNITS.
+                additionalPetHourlyRates:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                    minimum: 0
+                  description: >-
+                    Per-species extra charge per additional pet, per HOUR, in MINOR UNITS, keyed
+                    exactly as additionalPetAmounts is. Scaled to the billing increment to derive
+                    additionalPetAmounts.
+                billingIncrementMinutes:
+                  type: integer
+                  enum: [15, 30, 60]
+                  default: 30
+                  description: The billable unit for an hourly service. Part units round up.
+                minimumBillableMinutes:
+                  type: integer
+                  minimum: 0
+                  description: Optional floor on the billed time for an hourly service, in minutes.
       responses:
         '201':
           description: Created
@@ -2114,10 +2782,21 @@ paths:
                 cadence:
                   type: string
                   enum: [perService, perDay, perNight]
+                allowOtherBookingsDuringStay:
+                  type: boolean
+                  nullable: true
+                  description: Pet sitting services only. False stops the assigned team member being booked for other services during the stay. Null clears it.
                 description:
                   type: string
                 duration:
                   type: integer
+                capacity:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: >-
+                    Optional. How many pets can book the same start time with one team member. Unset
+                    means one booking at a time. Pass null to clear it.
                 additionalPetAmount:
                   type: integer
                   description: Extra charge per additional pet, in MINOR UNITS (pence/cents).
@@ -2133,6 +2812,43 @@ paths:
                     horse, other). Dog and the other dog types are independent keys. The map
                     replaces the stored one wholesale (omitted species are removed). Send null to
                     clear every per-species rate.
+                includedPetCount:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  description: How many pets the base price covers before additional-pet charges apply. Send null to clear it.
+                pricingType:
+                  type: string
+                  enum: [fixed, hourly]
+                  description: >-
+                    Switch a service between a fixed price and hourly billing. Setting `hourly`
+                    requires the service to have (or to be given in the same request) an
+                    `hourlyRate`, and re-derives `amount` from it. Setting `fixed` clears every
+                    hourly field; `amount` then keeps whatever you send, or the last derived
+                    per-unit price.
+                hourlyRate:
+                  type: integer
+                  description: Price per HOUR in MINOR UNITS (pence/cents). Re-derives amount when changed.
+                additionalPetHourlyRate:
+                  type: integer
+                  description: Extra charge per additional pet, per HOUR, in MINOR UNITS.
+                additionalPetHourlyRates:
+                  type: object
+                  nullable: true
+                  additionalProperties:
+                    type: integer
+                    minimum: 0
+                  description: >-
+                    Per-species extra charge per additional pet, per HOUR, in MINOR UNITS. Replaces
+                    the stored map wholesale (omitted species are removed); send null to clear.
+                billingIncrementMinutes:
+                  type: integer
+                  enum: [15, 30, 60]
+                  description: The billable unit for an hourly service. Re-derives amount when changed.
+                minimumBillableMinutes:
+                  type: integer
+                  minimum: 0
+                  description: Optional floor on the billed time for an hourly service, in minutes.
                 hidden:
                   type: boolean
       responses:
@@ -2297,10 +3013,11 @@ paths:
                   type: array
                   items:
                     type: string
-                  description: Omit or empty for any client. Tested against each pet's own owner, not the appointment's customer, so a booking shared by two households is surcharged only for the scoped client's pets.
+                  description: Omit or empty for any client. Tested against each pet's own owner, not the appointment's customer, so a booking shared by two households is surcharged only when one of the scoped client's pets is on it. Client scoping never multiplies a fixed amount; it is charged once per appointment, or per stay day or night. Only petTypes and petIDs multiply it by the matching pets.
                 hidden:
                   type: boolean
                   default: false
+                  description: Omit or false to apply the new surcharge automatically when its criteria are met, as the apps' Automatically apply switch does by default. Only true makes it manual only.
                 position:
                   type: integer
                   default: 0
@@ -2420,6 +3137,7 @@ paths:
                     type: string
                 hidden:
                   type: boolean
+                  description: true turns Automatically apply off (manual only); false turns it back on.
                 position:
                   type: integer
                   minimum: 0
@@ -2452,6 +3170,192 @@ paths:
         '404':
           description: Surcharge not found
 
+  /vaccinations/types:
+    get:
+      summary: List Vaccination Types
+      tags: [Vaccinations]
+      description: The catalogue of vaccinations, treatments and tests. `defaultValidityMonths` is a suggestion only; a due date is never worked out for you.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, description: Same as key. }
+                    key: { type: string }
+                    name: { type: string }
+                    category: { type: string }
+                    species: { type: array, nullable: true, items: { type: string } }
+                    defaultValidityMonths: { type: integer, nullable: true }
+                    regions: { type: array, nullable: true, items: { type: string } }
+  /vaccinations:
+    get:
+      summary: List Vaccinations
+      tags: [Vaccinations]
+      description: Live records, soonest due first, records with no due date last. The `X-Today` response header is the company day the status was worked out against.
+      parameters:
+        - { name: customerID, in: query, schema: { type: string } }
+        - { name: petID, in: query, schema: { type: string } }
+        - name: status
+          in: query
+          schema: { type: string, enum: [overdue, dueSoon, upToDate, noDueDate] }
+        - name: includeSuperseded
+          in: query
+          description: Include older doses a newer record has replaced.
+          schema: { type: string, enum: ['true', 'false'] }
+        - name: dueSoonDays
+          in: query
+          description: Days ahead that count as due soon, 1 to 90. Defaults to the company's vaccination alert setting.
+          schema: { type: integer }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vaccination'
+    post:
+      summary: Add Vaccination
+      tags: [Vaccinations]
+      description: >-
+        Records a vaccination on a pet, through the same checks the apps use.
+        The client is found from the pet. A newer dose of the same type marks
+        the older one superseded. Sending the same record twice returns the
+        first one with 200; send an Idempotency-Key to control this yourself.
+        Vaccination records need the company to be on Pro or Max.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [petID, type]
+              properties:
+                petID: { type: string }
+                type: { type: string, description: A key from GET /vaccinations/types. }
+                typeName: { type: string, description: Required when type is other. }
+                dateGiven: { type: string, format: date }
+                dateDue: { type: string, format: date }
+                batchNumber: { type: string }
+                administeredBy: { type: string }
+                notes: { type: string }
+                verified: { type: boolean, description: Admins and Sub Admins only. Marks it verified in the same save. }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vaccination'
+        '200':
+          description: The same record was already saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vaccination'
+        '400': { description: Invalid input, such as a future date given or a due date before it }
+        '403': { description: Not allowed for your role (only Admins and Sub Admins verify or delete), or the company is not on Pro or Max }
+        '404': { description: Not found }
+  /vaccinations/{id}:
+    get:
+      summary: Get Vaccination
+      tags: [Vaccinations]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vaccination'
+        '404':
+          description: Vaccination record not found
+    patch:
+      summary: Update Vaccination
+      tags: [Vaccinations]
+      description: Corrects a record. Only the fields sent change.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                typeName: { type: string }
+                dateGiven: { type: string, format: date, nullable: true }
+                dateDue: { type: string, format: date, nullable: true }
+                batchNumber: { type: string, nullable: true }
+                administeredBy: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                verified: { type: boolean, description: Admins and Sub Admins only. }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vaccination'
+        '400': { description: Invalid input, such as a future date given or a due date before it }
+        '403': { description: Not allowed for your role (only Admins and Sub Admins verify or delete), or the company is not on Pro or Max }
+        '404': { description: Not found }
+    delete:
+      summary: Delete Vaccination
+      tags: [Vaccinations]
+      description: Admins and Sub Admins only. The previous dose of the same type becomes the live record again. An attached certificate stays in the client's documents; its id is returned.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  id: { type: string }
+                  certificateDocumentID: { type: string, nullable: true }
+        '400': { description: Invalid input, such as a future date given or a due date before it }
+        '403': { description: Not allowed for your role (only Admins and Sub Admins verify or delete), or the company is not on Pro or Max }
+        '404': { description: Not found }
+  /vaccinations/{id}/verification:
+    post:
+      summary: Set Vaccination Verification
+      tags: [Vaccinations]
+      description: Admins and Sub Admins only. Verified means you have seen the certificate. Rejecting needs a reason.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [verified, rejected, unverified] }
+                note: { type: string, description: Required when rejecting. }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vaccination'
+        '400': { description: Invalid input, such as a future date given or a due date before it }
+        '403': { description: Not allowed for your role (only Admins and Sub Admins verify or delete), or the company is not on Pro or Max }
+        '404': { description: Not found }
   /appointments:
     get:
       summary: List Appointments
@@ -2467,6 +3371,16 @@ paths:
             type: string
             format: date
           description: Filter by date (YYYY-MM-DD)
+        - name: from
+          in: query
+          description: Starting on or after this time, earliest first. A date on its own is the start of that day in the company timezone. Use instead of `date`.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Starting on or before this time. A date on its own includes the whole of that day.
+          schema:
+            type: string
       responses:
         '200':
           description: Success
@@ -2493,6 +3407,17 @@ paths:
               type: object
               required: [startDate]
               properties:
+                repeats:
+                  type: array
+                  items: { type: integer, minimum: 0, maximum: 6 }
+                  description: >-
+                    Make this a weekly repeating series: the weekdays it repeats on, 0 = Sunday
+                    to 6 = Saturday. Needs repeatEndDate. Every later appointment in the series
+                    is created for you, priced and invoiced as the apps do. Up to 2000 occurrences.
+                repeatEndDate:
+                  type: string
+                  format: date
+                  description: The last day the series runs to (YYYY-MM-DD, your business timezone), included. Must be after startDate.
                 startDate:
                   type: string
                   format: date-time
@@ -2911,6 +3836,21 @@ paths:
           schema:
             type: string
             enum: ['true', 'false']
+        - name: customerID
+          in: query
+          description: Only activities with this client's pets. Results come newest first, one page, and `cursor` is ignored.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Started on or after this time. A date on its own (YYYY-MM-DD) is the start of that day in the company timezone. Newest first, one page.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Started on or before this time. A date on its own includes the whole of that day in the company timezone.
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -2957,6 +3897,21 @@ paths:
           schema:
             type: string
             enum: ['true', 'false']
+        - name: customerID
+          in: query
+          description: Only activities with this client's pets. Results come newest first, one page, and `cursor` is ignored.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Started on or after this time. A date on its own (YYYY-MM-DD) is the start of that day in the company timezone. Newest first, one page.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Started on or before this time. A date on its own includes the whole of that day in the company timezone.
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -3003,6 +3958,21 @@ paths:
           schema:
             type: string
             enum: ['true', 'false']
+        - name: customerID
+          in: query
+          description: Only activities with this client's pets. Results come newest first, one page, and `cursor` is ignored.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Started on or after this time. A date on its own (YYYY-MM-DD) is the start of that day in the company timezone. Newest first, one page.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Started on or before this time. A date on its own includes the whole of that day in the company timezone.
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -3049,6 +4019,21 @@ paths:
           schema:
             type: string
             enum: ['true', 'false']
+        - name: customerID
+          in: query
+          description: Only activities with this client's pets. Results come newest first, one page, and `cursor` is ignored.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Started on or after this time. A date on its own (YYYY-MM-DD) is the start of that day in the company timezone. Newest first, one page.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Started on or before this time. A date on its own includes the whole of that day in the company timezone.
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -3085,47 +4070,6 @@ paths:
                 $ref: '#/components/schemas/Activity'
         '404':
           description: Taxi not found
-  /checkins:
-    get:
-      summary: List Check-Ins
-      tags: [Check-Ins]
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-        - name: cursor
-          in: query
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Activity'
-  /checkins/{id}:
-    get:
-      summary: Get Check-In
-      tags: [Check-Ins]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Activity'
-        '404':
-          description: Check-in not found
   /petsittings:
     get:
       summary: List Pet Sittings
@@ -3141,6 +4085,21 @@ paths:
           schema:
             type: string
             enum: [daycare, boarding, overnight, homeSitting, dropIn, training, grooming, meetAndGreet]
+        - name: customerID
+          in: query
+          description: Only activities with this client's pets. Results come newest first, one page, and `cursor` is ignored.
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Started on or after this time. A date on its own (YYYY-MM-DD) is the start of that day in the company timezone. Newest first, one page.
+          schema:
+            type: string
+        - name: to
+          in: query
+          description: Started on or before this time. A date on its own includes the whole of that day in the company timezone.
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -4147,6 +5106,7 @@ paths:
   /conversations/{id}/messages:
     get:
       summary: List Messages
+      description: Lists a conversation's messages, newest first. Messages with photos or videos include short-lived signed links to them until they are removed 30 days after sending. Sending attachments through the API is not supported; POST /messages sends text.
       tags: [Messages]
       parameters:
         - name: id
@@ -4592,6 +5552,24 @@ paths:
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationSettings' } } } }
         '400': { description: No valid fields }
+  /settings/auto-reply:
+    get:
+      summary: Get Automatic Reply Settings
+      tags: [Settings]
+      responses:
+        '200': { description: Success, content: { application/json: { schema: { $ref: '#/components/schemas/AutoReplySettings' } } } }
+    patch:
+      summary: Update Automatic Reply Settings
+      description: The reply a customer gets when they message outside working hours, once for each time the business is closed. The message goes out exactly as written. Send either or both fields. Turning it on needs a message.
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutoReplySettings' }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/AutoReplySettings' } } } }
+        '400': { description: No valid fields, or turning it on without a message }
   /settings/booking:
     get:
       summary: Get Booking Settings
@@ -4623,7 +5601,7 @@ paths:
       summary: Update Company Region
       description: >-
         Change the company's country, timezone and/or business language. `businessLanguage` takes a
-        supported language code (en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el) or null for automatic (the country's language); any other
+        supported language code (en, fr, es, pt, de, it, nl, tr, uk, da, sv, pl, nb, el, fi, ja, ko, hi) or null for automatic (the country's language); any other
         value is refused with 400. Setting `country` automatically sets the
         matching `currency` (e.g. US→USD, GB→GBP, FR→EUR); a `currency` you pass is honoured only
         when no `country` is provided. Region affects money display business-wide. The timezone
@@ -5050,6 +6028,57 @@ paths:
                 $ref: '#/components/schemas/WorkingDay'
         '400':
           description: Validation error (invalid weekday, bad times, or overlapping blocks)
+  /team/{id}/working-hours/{day}:
+    get:
+      summary: Get Member Working Hours
+      description: Read one weekday override. Missing means inherit company hours; explicit empty hours means closed.
+      tags: [Working Hours]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: day, in: path, required: true, description: 'Weekday 0–6 or name.', schema: { type: string } }
+      responses:
+        '200':
+          description: Current member day
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberWorkingHoursResponse' }
+        '404': { description: Team member not found }
+    patch:
+      summary: Set Member Working Hours
+      description: Replace only this member weekday in the company timezone. Send null to inherit, an empty array to close, or up to 12 nonoverlapping HH:mm blocks. Other weekdays remain unchanged.
+      tags: [Working Hours]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: day, in: path, required: true, description: 'Weekday 0–6 or name.', schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [times]
+              properties:
+                times:
+                  type: array
+                  nullable: true
+                  maxItems: 12
+                  items:
+                    type: object
+                    required: [start, end]
+                    properties:
+                      start: { type: string, description: '24-hour HH:mm.' }
+                      end: { type: string, description: '24-hour HH:mm after start.' }
+      responses:
+        '200':
+          description: Saved member day
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberWorkingHoursResponse' }
+        '400': { description: Invalid member day or blocks }
+        '403': { description: Current API authority unavailable }
+        '404': { description: Team member not found }
+        '409': { description: Company timezone changed or complete malformed schedule needs review }
   /webhooks/{id}/test:
     post:
       summary: Test a Webhook
@@ -5099,7 +6128,275 @@ paths:
                 $ref: '#/components/schemas/Customer'
         '404':
           description: Customer not found
+  /customers/{id}/team-members:
+    post:
+      summary: Add Team Member to Customer
+      description: >-
+        Lets a Team Member message this client (WAL-19), as adding the client on the
+        team member's profile in the apps does. Admin and Sub Admin only. Only an
+        active Team Member can be added: Admins and Sub Admins already reach every client.
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamMemberID]
+              properties:
+                teamMemberID:
+                  type: string
+      responses:
+        '200':
+          description: Added (adding someone already added changes nothing)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  customerID: { type: string }
+                  assignedTeamMemberIDs: { type: array, items: { type: string } }
+        '400':
+          description: The team member is inactive, or is an Admin or Sub Admin
+        '403':
+          description: Only an Admin or Sub Admin can do this
+        '404':
+          description: Customer or team member not found
+  /customers/{id}/team-members/{teamMemberID}:
+    delete:
+      summary: Remove Team Member from Customer
+      description: Stops a Team Member messaging this client. Admin and Sub Admin only.
+      tags: [Customers]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: teamMemberID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Removed (removing someone not added changes nothing)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  customerID: { type: string }
+                  assignedTeamMemberIDs: { type: array, items: { type: string } }
+        '403':
+          description: Only an Admin or Sub Admin can do this
+        '404':
+          description: Customer not found
+  /discount-codes:
+    get:
+      summary: List Discount Codes
+      description: >-
+        The company's discount codes (WAL-12) with the discount each one unlocks
+        and how many times it has been used, sorted by code (at most 500).
+      tags: [Discounts]
+      parameters:
+        - name: code
+          in: query
+          description: Only this code (case does not matter).
+          schema:
+            type: string
+        - name: discountID
+          in: query
+          description: Only the codes of this discount.
+          schema:
+            type: string
+        - name: active
+          in: query
+          description: Only codes whose Active switch is on (true) or off (false).
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DiscountCode'
+    post:
+      summary: Create Discount Code
+      description: >-
+        Makes a code for a discount, as the apps' Add code does. In the same write
+        the discount becomes code-only (`requiresCode: true`, `hidden: true`:
+        Automatically apply off), because a discount with a code only applies when
+        a client types one. A fixed-amount code comes off once per booking or
+        invoice. Admin and Sub Admin only.
+      tags: [Discounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discountID, code]
+              additionalProperties: false
+              properties:
+                discountID: { type: string, description: The discount it unlocks (GET /discounts). }
+                code: { type: string, example: WELCOME10, description: "3 to 30 letters, numbers or dashes; stored upper case. No other code of the company may use it." }
+                active: { type: boolean, default: true, description: The Active switch. }
+                validUntil: { type: string, format: date, nullable: true, description: "Last day it can be used (YYYY-MM-DD, company timezone; it works to the end of that day). null = no end date." }
+                maxUses: { type: integer, minimum: 1, nullable: true, description: Total uses allowed. null = no limit. }
+                maxUsesPerClient: { type: integer, minimum: 1, nullable: true, description: Uses allowed per client. null = no limit. }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscountCode'
+        '400':
+          description: Invalid code, date or limit
+        '403':
+          description: Only an Admin or Sub Admin can do this
+        '404':
+          description: Discount not found
+        '409':
+          description: Another discount already uses this code
+  /discount-codes/{id}:
+    get:
+      summary: Get Discount Code
+      tags: [Discounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscountCode'
+        '404':
+          description: Discount code not found
+    patch:
+      summary: Update Discount Code
+      description: >-
+        Changes a code as the apps' code editor does: the code text, its Active
+        switch, its last day or its limits. Send only what changes; null clears
+        an end date or a limit. A code stays with the discount it was made for.
+        Admin and Sub Admin only.
+      tags: [Discounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                code: { type: string, example: WELCOME10, description: "3 to 30 letters, numbers or dashes; stored upper case. No other code of the company may use it." }
+                active: { type: boolean, description: The Active switch. }
+                validUntil: { type: string, format: date, nullable: true, description: "Last day it can be used (YYYY-MM-DD, company timezone; it works to the end of that day). null = no end date." }
+                maxUses: { type: integer, minimum: 1, nullable: true, description: Total uses allowed. null = no limit. }
+                maxUsesPerClient: { type: integer, minimum: 1, nullable: true, description: Uses allowed per client. null = no limit. }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscountCode'
+        '400':
+          description: Invalid code, date or limit, or an unknown field (discountID cannot change)
+        '403':
+          description: Only an Admin or Sub Admin can do this
+        '404':
+          description: Discount code not found
+        '409':
+          description: Another discount already uses this code, or the code's discount was deleted
+    delete:
+      summary: Delete Discount Code
+      description: >-
+        Deletes the code, as the apps do. Bookings and invoices it was already used
+        on keep their discount. When it was the discount's last code the discount
+        no longer requires one (`requiresCode: false`) and stays manual. Admin and
+        Sub Admin only.
+      tags: [Discounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  id: { type: string }
+                  discountID: { type: string, nullable: true }
+                  discountRequiresCode: { type: boolean, nullable: true, description: Whether the discount still has codes (null when the discount is gone). }
+        '403':
+          description: Only an Admin or Sub Admin can do this
+        '404':
+          description: Discount code not found
+  /discounts:
+    get:
+      summary: List Discounts
+      description: >-
+        The discount catalogue (read-only): the discounts a code can unlock. Edit
+        discounts in the apps' Discounts screen.
+      tags: [Discounts]
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Discount'
   /pets/{id}:
+    get:
+      summary: Get Pet
+      tags: [Pets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+        '404':
+          description: Pet not found
     patch:
       summary: Update Pet
       tags: [Pets]
@@ -5178,6 +6475,25 @@ paths:
         '404':
           description: Pet not found
   /appointments/{id}:
+    get:
+      summary: Get Appointment
+      tags: [Appointments]
+      description: One appointment. Synced calendar busy time is not an appointment and returns 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appointment'
+        '404':
+          description: Appointment not found
     patch:
       summary: Update Appointment
       description: >-
@@ -5204,6 +6520,22 @@ paths:
             schema:
               type: object
               properties:
+                applyTo:
+                  type: string
+                  enum: [this, future]
+                  default: this
+                  description: >-
+                    `this` changes only this appointment. `future` changes this appointment
+                    and every later one in its series, as the apps' "this and all future"
+                    choice: the later appointments are rebuilt from this one.
+                repeats:
+                  type: array
+                  items: { type: integer, minimum: 0, maximum: 6 }
+                  description: With applyTo future, the new weekdays for the series (0 = Sunday). An empty list ends the series at this appointment.
+                repeatEndDate:
+                  type: string
+                  format: date
+                  description: With applyTo future, the new last day of the series (YYYY-MM-DD), included.
                 status:
                   type: string
                   enum: [confirmed, requested, declined]
@@ -5276,6 +6608,14 @@ paths:
                     nothing for the deadline to apply to. invoiceType cannot be changed by this
                     endpoint, so the check is always against the stored value. Stored at the
                     start of the day in the company's timezone.
+                updateInvoices:
+                  type: boolean
+                  description: >-
+                    Pass true with an edit to rebuild this appointment's linked invoices from their
+                    appointments, in the background. Only invoices with no money against them change,
+                    and any manually edited services, travel, discount, tip, tax or deposit on them are
+                    replaced. Without it, linked invoices are never changed and the response carries a
+                    warning. Requires an Admin or Sub Admin.
                 confirmOverlap:
                   type: boolean
                   description: >-
@@ -5296,7 +6636,38 @@ paths:
           description: Legacy appointment requires explicit company-timezone migration
     delete:
       summary: Delete Appointment
+      description: >-
+        Cancels (deletes) the appointment. With `chargeCancellationFee=true` and the
+        company's cancellation fee on, an appointment inside the free-cancellation window
+        is charged the fee instead of its price, exactly as when a sitter cancels in the
+        apps. Default false: no fee.
       tags: [Appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: applyTo
+          in: query
+          required: false
+          description: "`future` deletes this appointment and every later one in its series. It cannot be combined with a cancellation fee."
+          schema: { type: string, enum: [this, future], default: this }
+        - name: chargeCancellationFee
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Deleted. `cancellationFee` (feeTotal and refundTotal in minor units) is present when chargeCancellationFee was true.
+        '404':
+          description: Appointment not found
+  /invoices/{id}:
+    get:
+      summary: Get Invoice
+      tags: [Invoices]
       parameters:
         - name: id
           in: path
@@ -5305,10 +6676,13 @@ paths:
             type: string
       responses:
         '200':
-          description: Deleted
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
         '404':
-          description: Appointment not found
-  /invoices/{id}:
+          description: Invoice not found
     patch:
       summary: Update Invoice
       tags: [Invoices]
@@ -5445,6 +6819,24 @@ paths:
         '404':
           description: One or more invoices not found
   /expenses/{id}:
+    get:
+      summary: Get Expense
+      tags: [Expenses]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '404':
+          description: Expense not found
     patch:
       summary: Update Expense
       tags: [Expenses]
@@ -5634,6 +7026,8 @@ paths:
                       - customer.created
                       - customer.updated
                       - customer.deleted
+                      - customer.connected
+                      - customer.disconnected
                       - pet.created
                       - pet.updated
                       - pet.deleted
@@ -5642,6 +7036,11 @@ paths:
                       - invoice.paid
                       - invoice.overdue
                       - invoice.deleted
+                      - credit_note.created
+                      - credit_note.applied
+                      - credit_note.unapplied
+                      - credit_note.voided
+                      - credit_note.deleted
                       - expense.created
                       - expense.updated
                       - expense.deleted
@@ -5931,6 +7330,121 @@ paths:
                           items: { type: object, properties: { title: { type: string }, type: { type: string }, quantity: { type: integer } } }
                   truncated: { type: boolean, description: Present (true) when the appointments list was capped at 1000 entries }
 
+  /payrolls:
+    get:
+      summary: List Payrolls
+      tags: [Payroll]
+      description: Saved payrolls, newest period first. Admins and Sub Admins only.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PayrollRun'
+        '403': { description: Not an Admin or Sub Admin }
+    post:
+      summary: Run Payroll
+      tags: [Payroll]
+      description: >-
+        Works out the team's pay for a period, with the same calculation as
+        GET /reports/payroll, and saves it to Payroll in the apps. Give a
+        `period`, or startDate and endDate (YYYY-MM-DD, both days included).
+        Admins and Sub Admins only.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth }
+                startDate: { type: string, format: date }
+                endDate: { type: string, format: date }
+                payMode: { type: string, enum: [perActivity, perHour], default: perActivity }
+                includeTravelDistance: { type: boolean, default: false }
+                includeTravelDuration: { type: boolean, default: false }
+                teamMemberIDs: { type: array, items: { type: string }, description: Only these people. Everyone when left out. }
+                notes: { type: string }
+                adjustments:
+                  type: array
+                  description: Per-person changes. Tips and extra pay are minor units and replace what was there; 0 removes them.
+                  items:
+                    type: object
+                    required: [teamMemberID]
+                    properties:
+                      teamMemberID: { type: string }
+                      tips: { type: integer, minimum: 0 }
+                      extraPay: { type: integer, minimum: 0 }
+                      notes: { type: string }
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollRun'
+        '400': { description: Invalid input or an unknown team member }
+        '403': { description: Not an Admin or Sub Admin }
+  /payrolls/{id}:
+    get:
+      summary: Get Payroll
+      tags: [Payroll]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollRun'
+        '404': { description: Payroll not found }
+    patch:
+      summary: Update Payroll
+      tags: [Payroll]
+      description: Changes tips, extra pay and notes on a saved payroll and works the totals out again. Everything else is fixed when the payroll is run; to recalculate, delete it and run it again.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, nullable: true }
+                adjustments:
+                  type: array
+                  description: Per-person changes. Tips and extra pay are minor units and replace what was there; 0 removes them.
+                  items:
+                    type: object
+                    required: [teamMemberID]
+                    properties:
+                      teamMemberID: { type: string }
+                      tips: { type: integer, minimum: 0 }
+                      extraPay: { type: integer, minimum: 0 }
+                      notes: { type: string }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollRun'
+        '400': { description: A fixed field was sent, or a person is not on this payroll }
+        '404': { description: Payroll not found }
+    delete:
+      summary: Delete Payroll
+      tags: [Payroll]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Payroll not found }
   /reports/payroll:
     get:
       summary: Payroll report
