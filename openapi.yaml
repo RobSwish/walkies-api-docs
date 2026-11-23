@@ -2,12 +2,15 @@ openapi: 3.0.3
 info:
   title: Walkies API
   description: |
+    ## Getting API access
+    The API needs a **Walkies API subscription**, which is separate from your Walkies plan. To subscribe, sign in to the Walkies web app as an Admin or Sub Admin, open [Settings > Integrations > Walkies API](https://petsitter.personalwalkies.com/petsitter/settings/walkies-api) and choose **Get the Walkies API**. Once you're subscribed, create a key on the same page with **Generate key**. Keys are created on the web only, not in the Walkies mobile apps.
+
     ## Authentication
     All requests require an API key passed as a Bearer token:
     ```
     Authorization: Bearer wk_live_...
     ```
-    Generate an API key from the Walkies web app: **Settings > Integrations > Generate key**. API keys are managed on the web only; the mobile apps don't generate them.
+    Generate an API key from the Walkies web app: **Settings > Integrations > Walkies API > Generate key**. API keys are managed on the web only; the mobile apps don't generate them.
 
     ## Permissions
     A key acts as the Admin or Sub Admin who created it, with the same permissions they have in the Walkies apps. A key stops working if that person is deactivated, removed, or no longer an Admin or Sub Admin, so create keys from an account that will stay in place. A key created by a Sub Admin cannot add, remove or promote an Admin, or change an Admin's details other than pay rates and colour. Nobody can change their own role or active status. A request the creator's role does not allow returns `403` with `"code": "FORBIDDEN_FOR_ROLE"`.
