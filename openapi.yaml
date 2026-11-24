@@ -35,7 +35,7 @@ info:
 
     ## Subscription
     The API requires a **Walkies API subscription**. Requests from accounts without an active Walkies API subscription receive a `403` response.
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: Walkies Support
     url: https://walkies.app
@@ -54,6 +54,27 @@ components:
       description: API key generated from the Walkies web app under Settings > Integrations.
 
   schemas:
+    TipsReportRow:
+      type: object
+      description: One tip (or one member's share of a split tip) in the Tips report. Amounts in minor units.
+      properties:
+        invoiceId: { type: string }
+        appointmentId: { type: string, nullable: true, description: Null for a whole invoice with no appointments }
+        customerName: { type: string }
+        service: { type: string, nullable: true, description: The appointment's primary service, else the invoice's first service }
+        serviceType: { type: string, description: 'Service type raw value (walk, dropin, ...); other when unknown' }
+        date: { type: string, format: date-time, description: The appointment's start, or when the invoice was paid for a whole-invoice row }
+        amount: { type: integer }
+        currency: { type: string, nullable: true, description: The invoice's currency }
+        fullAmount: { type: integer, description: 'Split rows only: the whole shared tip this row is a share of' }
+        sharedWith:
+          type: array
+          description: Split rows only. The other team members the tip was split with.
+          items: { type: object, properties: { id: { type: string }, name: { type: string } } }
+        teamMembers:
+          type: array
+          description: Shared rows only. Every team member on the appointment, by name.
+          items: { type: object, properties: { id: { type: string }, name: { type: string } } }
     ReportPeriod:
       type: object
       description: The resolved date range a report was computed over.
@@ -273,6 +294,51 @@ components:
           description: >-
             Optional. How many pets can book the same start time with one team member. Unset
             means one booking at a time. Customer bookings cannot go over it.
+        bookingHours:
+          type: object
+          nullable: true
+          description: >-
+            Optional booking hours: when clients can book this service. Keys are weekdays "0" (Sunday)
+            to "6" (Saturday); each is { times: [{ startHour, startMinute, endHour, endMinute }] } in the
+            company timezone, up to 12 blocks a day that don't overlap. A missing weekday is closed.
+            Only client bookings are limited; staff can book any time. Unset uses the business hours.
+          additionalProperties:
+            type: object
+            properties:
+              times:
+                type: array
+                maxItems: 12
+                items:
+                  type: object
+                  properties:
+                    startHour: { type: integer, minimum: 0, maximum: 23 }
+                    startMinute: { type: integer, minimum: 0, maximum: 59 }
+                    endHour: { type: integer, minimum: 0, maximum: 23 }
+                    endMinute: { type: integer, minimum: 0, maximum: 59 }
+        bookingSpecialDates:
+          type: object
+          nullable: true
+          description: >-
+            Optional special dates for this service's booking hours. Keys are company-local dates
+            "YYYY-MM-DD" (up to 400); each is { closed: true } or { times: [{ startHour, startMinute, endHour,
+            endMinute }] } with 1 to 12 blocks that don't overlap. On that date the service is closed or uses
+            these hours instead of its weekly booking hours. Company hours and special days still apply.
+            Past dates are kept but ignored. Only client bookings are limited.
+          additionalProperties:
+            type: object
+            properties:
+              date: { type: string, format: date, readOnly: true }
+              closed: { type: boolean }
+              times:
+                type: array
+                maxItems: 12
+                items:
+                  type: object
+                  properties:
+                    startHour: { type: integer, minimum: 0, maximum: 23 }
+                    startMinute: { type: integer, minimum: 0, maximum: 59 }
+                    endHour: { type: integer, minimum: 0, maximum: 23 }
+                    endMinute: { type: integer, minimum: 0, maximum: 59 }
         pricingType:
           type: string
           enum: [fixed, hourly]
@@ -328,7 +394,7 @@ components:
         id: { type: string }
         title: { type: string }
         valueType: { type: string, enum: [fixed, percentage] }
-        amount: { type: integer, nullable: true, description: Minor units when valueType is fixed. }
+        amount: { type: integer, nullable: true, description: Minor units when valueType is fixed. A fixed amount applies once per appointment (a whole stay counts once); to apply it per day or per night the sitter raises the row quantity on the appointment or invoice. }
         percentage: { type: number, nullable: true }
         currency: { type: string, nullable: true }
         hidden: { type: boolean, description: "Automatically apply off: manual, or code-only." }
@@ -354,7 +420,7 @@ components:
         discountID: { type: string }
         discountTitle: { type: string, nullable: true, description: "The discount's title, or null when the discount was deleted." }
         valueType: { type: string, nullable: true, enum: [fixed, percentage] }
-        amount: { type: integer, nullable: true, description: Fixed discount in minor units when valueType is fixed. }
+        amount: { type: integer, nullable: true, description: Fixed discount in minor units when valueType is fixed. It comes off once per appointment (a whole stay counts once); to take it off per day or per night the sitter raises the row quantity on the appointment or invoice. }
         percentage: { type: number, nullable: true, description: Percentage when valueType is percentage. }
         currency: { type: string, nullable: true }
         active: { type: boolean, description: "The code's Active switch." }
@@ -397,7 +463,7 @@ components:
           type: number
           nullable: true
           minimum: 1
-          description: Fixed amount in pence/cents. Set when valueType is fixed.
+          description: Fixed amount in pence/cents. Set when valueType is fixed. It is added once per appointment (a whole stay counts once); to add it per day or per night the sitter raises the row quantity on the appointment or invoice.
           example: 500
         percentage:
           type: number
@@ -717,6 +783,49 @@ components:
         status:
           type: string
           enum: [confirmed, requested, declined]
+        bookingGroupID:
+          type: string
+          nullable: true
+          readOnly: true
+          description: "Shared by appointments booked together: a client's request of several dates, or several dates added at once. Null for an appointment booked on its own. A repeating series is identified separately."
+        teamMemberResponses:
+          type: array
+          readOnly: true
+          description: "Each team member who was asked to accept this appointment, and their answer. Empty when nobody was asked. A team member who declined is no longer in teamMembers."
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              status:
+                type: string
+                enum: [waiting, accepted, declined]
+              askedAt:
+                type: string
+                format: date-time
+                nullable: true
+              answeredAt:
+                type: string
+                format: date-time
+                nullable: true
+        businessAcceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: "When the business accepted this booking (by hand, automatically or through the API). A requested appointment with a time here is waiting for an assigned team member to accept it."
+        acceptedAutomatically:
+          type: boolean
+          readOnly: true
+          description: "True when the business acceptance was automatic (the booking settings' autoAcceptExistingClients or autoAcceptNewClients)."
+        autoAcceptSkippedReason:
+          type: string
+          nullable: true
+          readOnly: true
+          enum: [clash, capacity, workingHours, paymentMethod, primaryService, timezone, null]
+          description: "Why a booking the business accepts automatically was left as a request: it overlaps another appointment, the service is full, it is outside working hours, its invoice has no payment method, it has no service, or the business has no time zone. Null otherwise."
         startDate:
           type: string
           format: date-time
@@ -1804,7 +1913,7 @@ components:
         allowClientBooking: { type: boolean, description: Whether customers can request/book appointments }
         allowTeamMemberSelection: { type: boolean, nullable: true, description: Whether customers can pick a team member }
         appointmentWindows: { type: boolean, nullable: true, description: Whether bookings use appointment windows }
-        appointmentWindowsBasedOnAvailability: { type: boolean, nullable: true }
+        appointmentWindowsBasedOnAvailability: { type: boolean, nullable: true, description: "Only show windows with enough time for the booking: a window is offered only when a team member has room in it for the booking, leaving travelBufferMinutes around their other appointments. Only applies while appointmentWindows is on." }
         checkAvailability: { type: boolean, description: Whether availability is checked when customers book (so they cannot book unavailable slots) }
         allowCustomerCancellation: { type: boolean, description: Whether customers can cancel }
         cancellationDaysBeforeAppointment: { type: integer, description: "The free-cancellation window: minimum days before an appointment a customer may cancel free of charge. At least 1 while the cancellation fee is on." }
@@ -1812,9 +1921,15 @@ components:
         cancellationFeeValueType: { type: string, enum: [percentage, fixed, fullPrice], description: "How the fee is worked out: a percentage of the appointment's price, a flat amount (never more than the appointment's price), or its full price." }
         cancellationFeePercentage: { type: number, nullable: true, minimum: 0, exclusiveMinimum: true, maximum: 100, description: Fee percentage when cancellationFeeValueType is percentage }
         cancellationFeeAmount: { type: integer, nullable: true, minimum: 1, description: Flat fee in minor units when cancellationFeeValueType is fixed }
-        travelBufferMinutes: { type: integer, minimum: 0, maximum: 240, description: "Minutes clients must leave after another appointment for the same team member when checkAvailability is on. 0 = no buffer." }
-        blockBookingsWhenInvoicesUnpaid: { type: boolean, description: "Whether clients with an overdue unpaid invoice (due date passed, money still owing) must pay it before they can book. Sitter-created appointments are never blocked. Default false." }
+        travelBufferMinutes: { type: integer, minimum: 0, maximum: 240, description: "Minutes clients must leave between their booking and another appointment for the same team member. Applies to exact times when checkAvailability is on, and to appointment windows when appointmentWindowsBasedOnAvailability is on. 0 = no buffer." }
+        blockBookingsWhenInvoicesUnpaid: { type: boolean, description: "Whether clients with an overdue invoice (due date passed, money still owing) must pay it before they can book. Sitter-created appointments are never blocked. Turning it off also turns off blockBookingsForAllUnpaidInvoices. Default false." }
+        blockBookingsForAllUnpaidInvoices: { type: boolean, description: "Only while blockBookingsWhenInvoicesUnpaid is on: whether clients with any unpaid invoice, even one that is not due yet, must pay it before they can book. Clients billed monthly are then blocked whenever an invoice is open. Setting it on while blockBookingsWhenInvoicesUnpaid is off is refused. Default false." }
+        allowSameDayBooking: { type: boolean, description: "Whether clients can book for today. Off means the earliest a client can book is tomorrow, by the company's local day; stays and appointment windows that start today count as same day. Sitter-created appointments are never blocked. Default true." }
         allowNewClientBooking: { type: boolean, description: "Whether people who are not clients yet can request a booking from the public profile and website (they are added to the clients when the sitter accepts their first booking). Only applies while allowClientBooking is on. Existing clients are unaffected. Default true." }
+        autoAcceptExistingClients: { type: boolean, description: "Accept bookings from existing clients automatically: a client already on the client list who books gets Booked at once instead of a request, with the usual booking confirmation. A booking that clashes, is over capacity, is outside working hours or has no payment method for its invoice stays a request (see autoAcceptSkippedReason on the appointment). Admins and Sub Admins only. Default false." }
+        autoAcceptNewClients: { type: boolean, description: "Accept bookings from new clients automatically: someone booking for the first time through the public profile or website is accepted at once and becomes an active client, under the same checks as autoAcceptExistingClients. Admins and Sub Admins only. Default false." }
+        tipsEnabled: { type: boolean, description: "Allow tips: whether clients can add a tip when they pay an invoice or pay at booking, and whether Auto-pay adds their tip. When false, clients are never offered a tip and any tip a client sends is not charged; tips the business records itself are unaffected. Default true." }
+        noTipOption: { type: boolean, description: "Show No tip: add a No tip choice to the tip amounts clients can pick when they pay. Only applies while tipsEnabled is on. Default false." }
         newClientFirstBookingServiceID: { type: string, nullable: true, description: "The service a new client's first booking has to be, such as a meet and greet (a service ID). A new client is someone who signed up through the public booking page and has no accepted booking yet; once the sitter accepts their first booking they can book any service. Only applies while allowClientBooking and allowNewClientBooking are on. If the service is deleted or hidden, the requirement is off. null when off. In PATCH, send an empty string to turn it off." }
     RegionSettings:
       type: object
@@ -2103,17 +2218,18 @@ components:
     MessageAttachment:
       type: object
       description: >-
-        A photo, video or GIF sent with a message (Max companies and their clients). Photos and videos
-        are removed 30 days after the message was sent; the message text stays. Until then `url` (and
-        `posterUrl` for a video) is a signed link that works for about an hour, so fetch the file soon
-        after reading it. GIFs link to KLIPY. Once removed, only `id` and `type` are returned and the
-        message has `attachmentsExpired: true`.
+        A photo, video, GIF or file sent with a message (Max companies and their clients). A file message
+        carries exactly one file, of any type except audio, up to 25 MB. Photos, videos and files are removed
+        30 days after the message was sent; the message text stays. Until then `url` (and `posterUrl` for a
+        video) is a signed link that works for about an hour, so fetch the file soon after reading it. A
+        file's link always downloads it (it is never shown in the browser). GIFs link to KLIPY. Once removed,
+        only `id` and `type` are returned and the message has `attachmentsExpired: true`.
       properties:
         id:
           type: string
         type:
           type: string
-          enum: [image, video, gif]
+          enum: [image, video, gif, file]
         width:
           type: number
           nullable: true
@@ -2132,6 +2248,17 @@ components:
           type: string
           nullable: true
           description: Short-lived signed link to a video's poster image.
+        fileName:
+          type: string
+          description: A file's name as it was sent (files only).
+        size:
+          type: integer
+          nullable: true
+          description: A file's size in bytes (files only).
+        contentType:
+          type: string
+          nullable: true
+          description: A file's media type as the sender's device reported it (files only).
     AutoReplySettings:
       type: object
       properties:
@@ -2695,6 +2822,51 @@ paths:
                   description: >-
                     Optional. How many pets can book the same start time with one team member. Unset
                     means one booking at a time. Customer bookings cannot go over it.
+                bookingHours:
+                  type: object
+                  nullable: true
+                  description: >-
+                    Optional booking hours: when clients can book this service. Keys are weekdays "0" (Sunday)
+                    to "6" (Saturday); each is { times: [{ startHour, startMinute, endHour, endMinute }] } in the
+                    company timezone, up to 12 blocks a day that don't overlap. A missing weekday is closed.
+                    Only client bookings are limited; staff can book any time. Unset uses the business hours.
+                  additionalProperties:
+                    type: object
+                    properties:
+                      times:
+                        type: array
+                        maxItems: 12
+                        items:
+                          type: object
+                          properties:
+                            startHour: { type: integer, minimum: 0, maximum: 23 }
+                            startMinute: { type: integer, minimum: 0, maximum: 59 }
+                            endHour: { type: integer, minimum: 0, maximum: 23 }
+                            endMinute: { type: integer, minimum: 0, maximum: 59 }
+                bookingSpecialDates:
+                  type: object
+                  nullable: true
+                  description: >-
+                    Optional special dates for this service's booking hours. Keys are company-local dates
+                    "YYYY-MM-DD" (up to 400); each is { closed: true } or { times: [{ startHour, startMinute, endHour,
+                    endMinute }] } with 1 to 12 blocks that don't overlap. On that date the service is closed or uses
+                    these hours instead of its weekly booking hours. Company hours and special days still apply.
+                    Past dates are kept but ignored. Only client bookings are limited.
+                  additionalProperties:
+                    type: object
+                    properties:
+                      date: { type: string, format: date, readOnly: true }
+                      closed: { type: boolean }
+                      times:
+                        type: array
+                        maxItems: 12
+                        items:
+                          type: object
+                          properties:
+                            startHour: { type: integer, minimum: 0, maximum: 23 }
+                            startMinute: { type: integer, minimum: 0, maximum: 59 }
+                            endHour: { type: integer, minimum: 0, maximum: 23 }
+                            endMinute: { type: integer, minimum: 0, maximum: 59 }
                 additionalPetAmount:
                   type: integer
                   description: Extra charge per additional pet, in MINOR UNITS (pence/cents) — × 100, e.g. £5 = 500.
@@ -2800,6 +2972,51 @@ paths:
                   description: >-
                     Optional. How many pets can book the same start time with one team member. Unset
                     means one booking at a time. Pass null to clear it.
+                bookingHours:
+                  type: object
+                  nullable: true
+                  description: >-
+                    Optional booking hours: when clients can book this service. Keys are weekdays "0" (Sunday)
+                    to "6" (Saturday); each is { times: [{ startHour, startMinute, endHour, endMinute }] } in the
+                    company timezone, up to 12 blocks a day that don't overlap. A missing weekday is closed.
+                    Only client bookings are limited; staff can book any time. Unset uses the business hours. Pass null to clear it; a value replaces the whole week.
+                  additionalProperties:
+                    type: object
+                    properties:
+                      times:
+                        type: array
+                        maxItems: 12
+                        items:
+                          type: object
+                          properties:
+                            startHour: { type: integer, minimum: 0, maximum: 23 }
+                            startMinute: { type: integer, minimum: 0, maximum: 59 }
+                            endHour: { type: integer, minimum: 0, maximum: 23 }
+                            endMinute: { type: integer, minimum: 0, maximum: 59 }
+                bookingSpecialDates:
+                  type: object
+                  nullable: true
+                  description: >-
+                    Optional special dates for this service's booking hours. Keys are company-local dates
+                    "YYYY-MM-DD" (up to 400); each is { closed: true } or { times: [{ startHour, startMinute, endHour,
+                    endMinute }] } with 1 to 12 blocks that don't overlap. On that date the service is closed or uses
+                    these hours instead of its weekly booking hours. Company hours and special days still apply.
+                    Past dates are kept but ignored. Only client bookings are limited. On update a value replaces every special date; null or {} clears them.
+                  additionalProperties:
+                    type: object
+                    properties:
+                      date: { type: string, format: date, readOnly: true }
+                      closed: { type: boolean }
+                      times:
+                        type: array
+                        maxItems: 12
+                        items:
+                          type: object
+                          properties:
+                            startHour: { type: integer, minimum: 0, maximum: 23 }
+                            startMinute: { type: integer, minimum: 0, maximum: 59 }
+                            endHour: { type: integer, minimum: 0, maximum: 23 }
+                            endMinute: { type: integer, minimum: 0, maximum: 59 }
                 additionalPetAmount:
                   type: integer
                   description: Extra charge per additional pet, in MINOR UNITS (pence/cents).
@@ -3384,6 +3601,21 @@ paths:
           description: Starting on or before this time. A date on its own includes the whole of that day.
           schema:
             type: string
+        - name: type
+          in: query
+          description: >-
+            Only these activities, as the apps' Activity filter: one or more,
+            comma-separated (type=walk,checkIn). A drop-in is checkIn. An
+            appointment is the activity its own type says; one with no type or
+            other counts as its primary service's type. Additional services
+            don't count. Combines with customerID, date, from and to.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [walk, checkIn, hike, run, taxi, daycare, boarding, overnight, homeSitting, training, grooming, meetAndGreet, other]
       responses:
         '200':
           description: Success
@@ -3420,7 +3652,7 @@ paths:
                 repeatEndDate:
                   type: string
                   format: date
-                  description: The last day the series runs to (YYYY-MM-DD, your business timezone), included. Must be after startDate.
+                  description: The last day the series runs to (YYYY-MM-DD, your business timezone), included. Must be after startDate. At most 5 years from today; a later date is saved as the day 5 years from today.
                 startDate:
                   type: string
                   format: date-time
@@ -5087,6 +5319,7 @@ paths:
   /conversations:
     get:
       summary: List Conversations
+      description: Lists the company's client conversations. A Team Member's key lists only the clients assigned to them, and when a conversation's last message was sent before they were assigned to that client, lastMessage is null and both unread counts are 0 (newer unread messages count as 1).
       tags: [Messages]
       parameters:
         - name: limit
@@ -5109,7 +5342,7 @@ paths:
   /conversations/{id}/messages:
     get:
       summary: List Messages
-      description: Lists a conversation's messages, newest first. Messages with photos or videos include short-lived signed links to them until they are removed 30 days after sending. Sending attachments through the API is not supported; POST /messages sends text.
+      description: Lists a conversation's messages, newest first. Messages with photos or videos include short-lived signed links to them until they are removed 30 days after sending. Sending attachments through the API is not supported; POST /messages sends text. A Team Member's key reads only an assigned client's conversation, and only the messages sent from when they were assigned to that client.
       tags: [Messages]
       parameters:
         - name: id
@@ -5135,7 +5368,7 @@ paths:
   /messages/broadcast:
     post:
       summary: Broadcast Message
-      description: Sends one message to all linked customers, or a subset via customerIDs.
+      description: Sends one message to all linked customers, or a subset via customerIDs. Archived customers never receive a broadcast, even when listed in customerIDs; use POST /messages to message one archived customer.
       tags: [Messages]
       requestBody:
         required: true
@@ -5164,6 +5397,12 @@ paths:
                     type: boolean
                   sentTo:
                     type: integer
+                  skippedNoName:
+                    type: integer
+                    description: Linked customers left out because neither owner has a name.
+                  skippedArchived:
+                    type: integer
+                    description: Archived customers left out of the broadcast.
         '400':
           description: No linked customers or validation error
           content:
@@ -5529,6 +5768,8 @@ paths:
                 days: { type: array, items: { type: integer } }
       responses:
         '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentWindow' } } } }
+        '422':
+          description: "The request can't be accepted as it stands: `reason` is paymentMethod, primaryService or timezone."
         '404': { description: Not found }
     delete:
       summary: Delete Appointment Window
@@ -6510,6 +6751,12 @@ paths:
         startDate and endDate before its schedule is changed. Notes, status and
         request acceptance preserve its stored instant and timezone metadata;
         responses and business rules project that instant into company time.
+        Accepting a request (status requested to confirmed) works exactly like
+        Accept in the apps: the invoice type, payment method, deposit, due date,
+        tax and payment details are worked out from the client's and company's
+        settings and the invoice is raised. Any other change in the same request
+        is saved first. A request that can't be accepted (no payment method for
+        its invoice, no service, no company time zone) returns 422 with `reason`.
       tags: [Appointments]
       parameters:
         - name: id
@@ -6538,7 +6785,7 @@ paths:
                 repeatEndDate:
                   type: string
                   format: date
-                  description: With applyTo future, the new last day of the series (YYYY-MM-DD), included.
+                  description: With applyTo future, the new last day of the series (YYYY-MM-DD), included. At most 5 years from today; a later date is saved as the day 5 years from today.
                 status:
                   type: string
                   enum: [confirmed, requested, declined]
@@ -7333,6 +7580,83 @@ paths:
                           items: { type: object, properties: { title: { type: string }, type: { type: string }, quantity: { type: integer } } }
                   truncated: { type: boolean, description: Present (true) when the appointments list was capped at 1000 entries }
 
+  /reports/tips:
+    get:
+      summary: Tips report
+      description: >-
+        Client tips owed to each team member, the same figures as the app's Tips
+        report. Covers paid invoices whose datePaid falls in the period. Each
+        invoice's tip is net of refunds (taken off in proportion to the money
+        refunded) and split across the appointments it bills, by the tip each
+        was booked with, else by price, else equally. An appointment with one
+        team member goes to that member, with none to notAssigned (as does an
+        invoice with no appointments left), with two or more to shared, or, when
+        splitShared is true, evenly to each member on it (the first member by
+        name takes any remainder). Every amount is a whole number of minor units
+        and the parts always add up to the tip. Admin and Sub Admin only.
+      tags: [Reports]
+      parameters:
+        - { name: period, in: query, description: 'thisWeek starts on the company country''s first day of week (GB Monday, US Sunday)', schema: { type: string, enum: [thisWeek, thisMonth, thisQuarter, thisYear, custom], default: thisMonth } }
+        - { name: startDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD only (other formats rejected)', schema: { type: string } }
+        - { name: endDate, in: query, description: 'Required when period=custom. ISO 8601 or YYYY-MM-DD; must be on or after startDate', schema: { type: string } }
+        - { name: timezone, in: query, description: 'IANA tz (default: company timezone)', schema: { type: string } }
+        - { name: splitShared, in: query, description: 'Split tips on appointments with several team members evenly between them. Default is the company''s "Split shared tips evenly" setting in the app, which is on unless turned off.', schema: { type: boolean } }
+      responses:
+        '200':
+          description: Tips report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report: { type: string, enum: [tips] }
+                  period: { $ref: '#/components/schemas/ReportPeriod' }
+                  splitShared: { type: boolean, description: Whether shared tips were split evenly between the team members on them }
+                  hasSharedTips: { type: boolean, description: Whether any tip in the period was on an appointment with two or more team members, split or not }
+                  teamTotal: { type: integer, description: Every tip in the period, minor units (team members + shared + not assigned) }
+                  teamMembers:
+                    type: array
+                    description: Sorted by name. A split shared tip appears under each member on it.
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        picture: { type: string, nullable: true }
+                        total: { type: integer }
+                        rows: { type: array, items: { $ref: '#/components/schemas/TipsReportRow' } }
+                  shared:
+                    type: object
+                    description: Tips on appointments with two or more team members, counted once and in no member's total. Empty when splitShared is true.
+                    properties:
+                      total: { type: integer }
+                      rows: { type: array, items: { $ref: '#/components/schemas/TipsReportRow' } }
+                  notAssigned:
+                    type: object
+                    description: Tips on appointments with no team member, and on invoices with no appointments.
+                    properties:
+                      total: { type: integer }
+                      rows: { type: array, items: { $ref: '#/components/schemas/TipsReportRow' } }
+                  truncated: { type: boolean, description: 'Present (true) when the rows were capped at 1000 in all (members by name, then shared, then notAssigned); totals cover the full set' }
+              example:
+                report: tips
+                period: { type: custom, start: '2026-11-01T00:00:00.000Z', end: '2026-11-30T23:59:59.999Z', timezone: Europe/London }
+                splitShared: true
+                hasSharedTips: true
+                teamTotal: 1350
+                teamMembers:
+                  - id: alex
+                    name: Alex
+                    picture: null
+                    total: 700
+                    rows:
+                      - { invoiceId: B, appointmentId: b1, customerName: Robin Jones, service: Walk, serviceType: walk, date: '2026-11-12T09:00:00.000Z', amount: 500, currency: GBP }
+                      - { invoiceId: A, appointmentId: a2, customerName: Robin Jones, service: Walk, serviceType: walk, date: '2026-11-10T09:00:00.000Z', amount: 200, currency: GBP, fullAmount: 400, sharedWith: [{ id: sam, name: Sam }] }
+                shared: { total: 0, rows: [] }
+                notAssigned:
+                  total: 250
+                  rows:
+                    - { invoiceId: D, appointmentId: null, customerName: Robin Jones, service: Walk, serviceType: walk, date: '2026-11-13T15:00:00.000Z', amount: 250, currency: GBP }
   /payrolls:
     get:
       summary: List Payrolls
